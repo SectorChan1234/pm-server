@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ProjectBook - Sign In</title>
+    <link rel="stylesheet" href="/css/login.css">
+</head>
+<body>
+
+    <div class="login-card">
+        <div class="login-header">
+            <h1>ProjectBook</h1>
+            <p>Project Collaboration Portal</p>
+        </div>
+
+        <div id="errorBox"></div>
+
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="emailInput">Official Email / Username</label>
+                <input type="text" id="emailInput" placeholder="e.g. user@swd.gov.hk or user" required autofocus autocomplete="username">
+            </div>
+
+            <div class="form-group">
+                <label for="passwordInput">Password</label>
+                <input type="password" id="passwordInput" placeholder="Enter your password" required autocomplete="current-password">
+            </div>
+
+            <button type="submit" class="btn-submit" id="submitBtn">Sign In</button>
+        </form>
+    </div>
+
+    <script src="/js/login.js"></script>
+</body>
+</html>

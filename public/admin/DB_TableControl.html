@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+  <meta charset="UTF-8">
+  <title>H2 資料庫管理控制台 (DB Table Control)</title>
+  <link rel="stylesheet" href="/admin/css/DB_TableControl.css">
+</head>
+<body>
+
+  <h2>
+    <span>H2 資料庫萬用控制台</span>
+    <div style="font-size: 13px; font-weight: normal; display: flex; gap: 12px; align-items: center;">
+      <a href="/portal.html" style="color: var(--primary); text-decoration: none;">前台專案門戶 →</a>
+      <a href="/admin/StaffPasswordSetup.html" style="color: var(--primary); text-decoration: none;">人員帳號與密碼中心 →</a>
+    </div>
+  </h2>
+
+  <!-- 頂部控制面板 -->
+  <div class="panel">
+    <div class="control-row">
+      <label for="table-select"><strong>1. 選擇資料表：</strong></label>
+      <select id="table-select" onchange="onTableSelectChanged()">
+        <option value="">載入中...</option>
+      </select>
+
+      <button onclick="loadCurrentTable()">重新整理</button>
+      <button class="success" id="btn-insert-single" onclick="openInsertModal()">+ 新增單筆記錄</button>
+      <button class="indigo" id="btn-insert-batch" onclick="openBatchInsertModal()">📋 批次匯入 (Excel貼上)</button>
+      <button class="teal" onclick="openFullDbSchemaModal()">📑 查看全 DB 結構</button>
+      <button class="danger" id="btn-truncate" onclick="truncateTable()">清空全表資料</button>
+      <button class="secondary" onclick="backupDatabase()">📦 備份整個資料庫</button>
+      <span id="status-msg" class="status-msg"></span>
+    </div>
+
+    <!-- 標籤頁切換 -->
+    <div class="tabs">
+      <button class="tab-btn active" id="tab-data-btn" onclick="switchTab('data')">資料內容檢視 / 編輯</button>
+      <button class="tab-btn" id="tab-schema-btn" onclick="switchTab('schema')">表結構檢視 / 變更</button>
+    </div>
+
+    <!-- 結構變更子工具 -->
+    <div id="schema-tools" style="display: none; margin-top: 15px; padding-top: 15px; border-top: 1px dashed var(--border);">
+      <div class="control-row">
+        <strong>新增欄位：</strong>
+        <input type="text" id="new-col-name" placeholder="欄位名稱 (如: Remark2)" style="width: 160px;">
+        <select id="new-col-type">
+          <option value="VARCHAR(255)">VARCHAR(255)</option>
+          <option value="INT">INT</option>
+          <option value="CLOB">CLOB (長文字)</option>
+          <option value="BOOLEAN">BOOLEAN</option>
+          <option value="TIMESTAMP">TIMESTAMP (日期時間)</option>
+          <option value="DECIMAL(12,2)">DECIMAL(12,2) (金額/數值)</option>
+        </select>
+        <button onclick="addColumn()">確認新增欄位</button>
+      </div>
+      <div class="control-row" style="margin-top: 10px;">
+        <strong>自訂 DDL：</strong>
+        <input type="text" id="custom-ddl" placeholder="例: ALTER TABLE &quot;表名&quot; DROP COLUMN &quot;欄位名&quot;" style="flex: 1;">
+        <button class="secondary" onclick="executeCustomDDL()">執行 DDL</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 資料筆數與分頁控制資訊列 -->
+  <div id="table-info-bar" class="table-info-bar">
+    <div>
+      <span id="record-count-info">資料讀取中...</span>
+      <span id="active-filter-badge" style="display:none; margin-left: 8px; color: var(--primary); font-weight: bold;">(已套用篩選條件)</span>
+      <span id="append-only-badge" style="display:none; margin-left: 8px; color: var(--danger); font-weight: bold;">[🔒 Append-Only 稽核表：資料唯讀]</span>
+    </div>
+    <div style="display: flex; gap: 10px; align-items: center;">
+      <label for="limit-select" style="font-size: 12px;">顯示上限：</label>
+      <select id="limit-select" style="min-width: 90px; padding: 4px 8px; font-size: 12px;" onchange="onLimitChanged(this.value)">
+        <option value="50">50 筆</option>
+        <option value="100" selected>100 筆</option>
+        <option value="300">300 筆</option>
+        <option value="1000">1000 筆</option>
+        <option value="0">全部</option>
+      </select>
+      <button class="secondary" style="padding: 4px 8px; font-size: 12px;" onclick="clearAllFilters()">✕ 重設排序與篩選</button>
+    </div>
+  </div>
+
+  <!-- 資料/結構顯示表格區塊 -->
+  <div class="table-container">
+    <table id="main-table">
+      <thead id="table-head"></thead>
+      <tbody id="table-body">
+        <tr><td style="padding: 20px; text-align: center; color: #94a3b8;">請選擇資料表</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- DDL SQL 視窗 -->
+  <div id="ddl-section" class="ddl-box" style="display: none;">
+    <div class="ddl-box-header">
+      <div>
+        <strong>📄 目前資料表之原生 DDL 架構定義 (SQL Schema Statement)</strong>
+        <span style="font-size: 12px; color: #64748b; margin-left: 8px;">由 H2 資料庫原生生成，包含所有約束、外鍵與索引定義</span>
+      </div>
+      <button class="secondary" style="padding: 4px 10px; font-size: 12px;" onclick="copyDDL()">📋 複製 DDL</button>
+    </div>
+    <textarea id="ddl-textarea" class="ddl-code" readonly placeholder="DDL 語句載入中..."></textarea>
+  </div>
+
+  <!-- 單筆新增 Modal -->
+  <div id="insert-modal" class="modal-backdrop">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 style="margin: 0;">新增記錄到: <span id="modal-table-name" style="color: var(--primary);"></span></h3>
+        <button class="secondary" style="padding: 2px 8px;" onclick="closeInsertModal()">✕</button>
+      </div>
+      <div class="modal-body" id="insert-form-container"></div>
+      <div class="modal-footer">
+        <button class="secondary" onclick="closeInsertModal()">取消</button>
+        <button class="success" onclick="submitInsert()">確認新增</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 批次匯入 Modal -->
+  <div id="batch-insert-modal" class="modal-backdrop">
+    <div class="modal batch-modal">
+      <div class="modal-header">
+        <h3 style="margin: 0;">📋 從 Excel 批次貼上匯入多筆記錄 (<span id="batch-modal-table-name" style="color: var(--primary);"></span>)</h3>
+        <button class="secondary" style="padding: 2px 8px;" onclick="closeBatchInsertModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <label class="form-label">步驟 1：請在 Excel 選取資料區域複製 (Ctrl+C)，並在此貼上 (Ctrl+V)：</label>
+            <label style="font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 4px;">
+              <input type="checkbox" id="batch-has-header" checked onchange="parseExcelPasteData()"> 第一列是標頭欄位名 (Header)
+            </label>
+          </div>
+          <textarea id="batch-paste-textarea" class="batch-paste-area" placeholder="請在此貼上 Excel 複製的資料表格 (Tab 分隔)..." oninput="parseExcelPasteData()"></textarea>
+          <div class="form-hint" id="batch-paste-stat">尚未貼入任何資料</div>
+        </div>
+
+        <div class="form-group" style="margin-top: 8px;">
+          <label class="form-label">步驟 2：欄位映射對齊與前 10 筆即時預覽：</label>
+          <div style="max-height: 260px; overflow: auto; border: 1px solid var(--border); border-radius: 6px;">
+            <table class="mapping-table" id="batch-preview-table">
+              <thead id="batch-preview-head"></thead>
+              <tbody id="batch-preview-body">
+                <tr><td style="text-align: center; color: #94a3b8; padding: 20px;">請先於上方貼上 Excel 資料</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <span id="batch-import-status" style="margin-right: auto; font-size: 13px; font-weight: bold;"></span>
+        <button class="secondary" onclick="closeBatchInsertModal()">取消</button>
+        <button class="success" id="batch-submit-btn" disabled onclick="submitBatchInsert()">確認批次寫入資料庫</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 全 DB 架構檢視 Modal -->
+  <div id="full-schema-modal" class="modal-backdrop">
+    <div class="modal full-schema-modal">
+      <div class="modal-header">
+        <h3 style="margin: 0;">📑 全資料庫結構總覽與匯出 (Full Database Schema)</h3>
+        <button class="secondary" style="padding: 2px 8px;" onclick="closeFullDbSchemaModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="schema-view-bar">
+          <strong>呈現格式：</strong>
+          <button class="tab-btn active" id="btn-schema-ui" onclick="switchFullSchemaTab('ui')">1. 結構清單表格</button>
+          <button class="tab-btn" id="btn-schema-ddl" onclick="switchFullSchemaTab('ddl')">2. 完整 DDL SQL</button>
+          <button class="tab-btn" id="btn-schema-md" onclick="switchFullSchemaTab('md')">3. Markdown 文件格式</button>
+          
+          <div style="margin-left: auto; display:flex; gap:8px;">
+            <button class="secondary" style="padding: 6px 12px; font-size:13px;" onclick="copyFullSchemaContent()">📋 複製目前內容</button>
+            <button class="primary" style="padding: 6px 12px; font-size:13px;" onclick="downloadFullSchemaFile()">💾 下載文件</button>
+          </div>
+        </div>
+
+        <div id="full-schema-content-ui" style="display: block;">
+          <div id="full-schema-cards-container">結構載入中...</div>
+        </div>
+
+        <div id="full-schema-content-text" style="display: none; height: 100%;">
+          <textarea id="full-schema-textarea" style="width: 100%; height: 500px; font-family: Consolas, Monaco, monospace; font-size: 12px; background: #0f172a; color: #38bdf8; padding: 12px; border-radius: 6px; border: none; box-sizing: border-box; resize: vertical;" readonly></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="secondary" onclick="closeFullDbSchemaModal()">關閉視窗</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/admin/js/DB_TableControl.js"></script>
+</body>
+</html>

@@ -1,0 +1,114 @@
+/* ==========================================================================
+   ProjectBook - Unified Gantt Blueprint Styling
+   ========================================================================== */
+
+/* 1. 外層卡片與控制列 */
+.pb-gantt-card {
+    background: #ffffff;
+    border: 1px solid var(--border-light);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-bottom: 20px;
+}
+
+.pb-gantt-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-light);
+}
+
+.pb-gantt-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: #1e293b;
+}
+
+/* 2. 雙軌佈局容器 (Dual Split-Rail Engine) */
+.pb-gantt-split-wrap {
+    display: flex;
+    margin-top: 14px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    background: #ffffff;
+    overflow: hidden;
+}
+
+.pb-gantt-left-col {
+    width: 240px;
+    min-width: 240px;
+    max-width: 240px;
+    border-right: 2px solid #cbd5e1;
+    background: #fafbfc;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+}
+
+.pb-gantt-col-header {
+    height: 24px;
+    padding: 0 10px;
+    display: flex;
+    align-items: center;
+    border-bottom: 1px solid #cbd5e1;
+    font-size: 11px;
+    font-weight: 700;
+    color: #64748b;
+    background: #f8fafc;
+}
+
+/* 3. 雙軌行容器與狀態修飾 (解決 Frozen 框線的核心) */
+.pb-gantt-left-row,
+.pb-gantt-right-row {
+    min-height: 38px;
+    margin-bottom: 3px;
+    box-sizing: border-box;
+    border-radius: 3px;
+    border: 1px solid transparent;
+    border-bottom: 1px solid #f1f5f9;
+    background: #ffffff;
+    transition: background 0.15s ease;
+}
+
+/* ★ 正確的 Frozen 框線：完全對齊 Phase 的均勻 1px 細紅框，無粗邊 */
+.pb-gantt-left-row.is-frozen,
+.pb-gantt-right-row.is-frozen {
+    background: #fff5f5 !important;
+    border: 1px solid #fca5a5 !important;
+}
+
+/* 軟刪除狀態 */
+.pb-gantt-left-row.is-deleted,
+.pb-gantt-right-row.is-deleted {
+    opacity: 0.65;
+    background: #f8fafc;
+}
+
+/* 4. Today Line 與刻度標尺 */
+.pb-gantt-today-badge {
+    position: absolute;
+    top: 2px;
+    transform: translateX(-50%);
+    background: #ef4444;
+    color: #ffffff;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 3px;
+    white-space: nowrap;
+    z-index: 12;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.pb-gantt-today-line {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: #ef4444;
+    z-index: 5;
+    pointer-events: none;
+}

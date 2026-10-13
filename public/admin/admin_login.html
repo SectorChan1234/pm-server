@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+  <meta charset="UTF-8">
+  <title>管理員登入 (Admin Login)</title>
+  <link rel="stylesheet" href="/admin/css/admin_login.css">
+</head>
+<body>
+
+  <div class="login-card">
+    <h2>管理員登入</h2>
+    <p class="subtitle">請輸入您的管理員公務帳號與安全密碼</p>
+
+    <div class="form-group">
+      <label for="admin-email">管理員電郵帳號 (Admin Email)：</label>
+      <input type="text" id="admin-email" placeholder="例如: admin@swd.gov.hk 或 admin" autofocus>
+    </div>
+
+    <div class="form-group">
+      <label for="admin-password">密碼：</label>
+      <input type="password" id="admin-password" placeholder="請輸入密碼">
+    </div>
+
+    <button id="login-btn" onclick="handleLogin()">登入系統</button>
+    <div id="error-msg" class="error-msg"></div>
+
+    <div class="nav-links">
+      <a href="/index.html">← 返回一般登入</a>
+      <a href="/admin/StaffPasswordSetup.html">帳號與密碼設定中心 →</a>
+    </div>
+  </div>
+
+  <script src="/admin/js/admin_login.js"></script>
+</body>
+</html>

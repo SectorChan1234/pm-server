@@ -1,0 +1,110 @@
+/* ==========================================================================
+   ProjectBook Collaboration Portal - Project Management Styles
+   File: /public/css/portal-function-project.css
+   Strictly scoped to Project Detail, Rosters and Ref Actions
+   ========================================================================== */
+
+/* Project Detail Grid */
+.detail-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+    font-size: 13px;
+    margin-bottom: 16px;
+}
+
+/* 針對日期或精簡短資訊的緊湊型 4 欄/自適應排列 */
+.detail-grid-compact {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    font-size: 13px;
+    margin-bottom: 16px;
+}
+
+.detail-item {
+    background: #f8fafc;
+    border: 1px solid var(--border-light);
+    padding: 10px 14px;
+    border-radius: 6px;
+    box-sizing: border-box;
+}
+
+/* 日期專用緊湊項：不強制擴大，文字與寬度剛好吻合 */
+.detail-item.date-item {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.detail-item.full-width {
+    grid-column: 1 / -1; /* 自動跨越所有欄位 */
+}
+
+.detail-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+}
+
+.detail-val {
+    font-size: 13px;
+    color: var(--text-dark);
+    font-weight: 500;
+    word-break: break-word;
+}
+
+.detail-val.date-val {
+    font-family: monospace;
+    font-size: 13px;
+    color: #334155;
+}
+
+/* Roster Table (成員名單與權限表) */
+.pb-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    margin-top: 8px;
+}
+
+.pb-table th, .pb-table td {
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--border-light);
+}
+
+.pb-table th {
+    background: #f8fafc;
+    font-weight: 600;
+    color: #475569;
+}
+
+.pb-table tr:hover td {
+    background: #fdfdfd;
+}
+
+/* Quick Add Button next to Field Labels */
+.btn-ref-add {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #f1f5f9;
+    color: var(--primary);
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    padding: 1px 7px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    line-height: 1.2;
+    transition: all 0.2s ease;
+}
+
+.btn-ref-add:hover {
+    background: var(--primary);
+    color: #ffffff;
+    border-color: var(--primary);
+}

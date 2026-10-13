@@ -1,0 +1,163 @@
+2026-10-05 12:11:56 jdbc[3]: exception
+org.h2.jdbc.JdbcSQLException: Column "ST_EMAIL" not found; SQL statement:
+SELECT PK_T05, ST_Email, ST_Name, ST_password_hash, ST_IsActive FROM "T05_Staff" LIMIT 5 [42122-196]
+	at org.h2.message.DbException.getJdbcSQLException(DbException.java:345)
+	at org.h2.message.DbException.get(DbException.java:179)
+	at org.h2.message.DbException.get(DbException.java:155)
+	at org.h2.expression.ExpressionColumn.optimize(ExpressionColumn.java:147)
+	at org.h2.command.dml.Select.prepare(Select.java:839)
+	at org.h2.command.Parser.prepareCommand(Parser.java:263)
+	at org.h2.engine.Session.prepareLocal(Session.java:578)
+	at org.h2.engine.Session.prepareCommand(Session.java:519)
+	at org.h2.jdbc.JdbcConnection.prepareCommand(JdbcConnection.java:1204)
+	at org.h2.jdbc.JdbcStatement.executeQuery(JdbcStatement.java:73)
+	at CheckDB.main(CheckDB.java:20)
+2026-10-05 12:17:11 database: flush
+org.h2.message.DbException: General error: "java.lang.IllegalStateException: The file is locked: nio:D:/pm-server/DB/pmdb/data/pmdb.mv.db [1.4.196/7]" [50000-196]
+	at org.h2.message.DbException.get(DbException.java:168)
+	at org.h2.message.DbException.convert(DbException.java:295)
+	at org.h2.mvstore.db.MVTableEngine$1.uncaughtException(MVTableEngine.java:95)
+	at org.h2.mvstore.MVStore.panic(MVStore.java:378)
+	at org.h2.mvstore.MVStore.<init>(MVStore.java:361)
+	at org.h2.mvstore.MVStore$Builder.open(MVStore.java:2930)
+	at org.h2.mvstore.db.MVTableEngine$Store.open(MVTableEngine.java:155)
+	at org.h2.mvstore.db.MVTableEngine.init(MVTableEngine.java:100)
+	at org.h2.engine.Database.getPageStore(Database.java:2476)
+	at org.h2.engine.Database.open(Database.java:697)
+	at org.h2.engine.Database.openDatabase(Database.java:276)
+	at org.h2.engine.Database.<init>(Database.java:270)
+	at org.h2.engine.Engine.openSession(Engine.java:64)
+	at org.h2.engine.Engine.openSession(Engine.java:176)
+	at org.h2.engine.Engine.createSessionAndValidate(Engine.java:154)
+	at org.h2.engine.Engine.createSession(Engine.java:137)
+	at org.h2.engine.Engine.createSession(Engine.java:27)
+	at org.h2.engine.SessionRemote.connectEmbeddedOrServer(SessionRemote.java:354)
+	at org.h2.jdbc.JdbcConnection.<init>(JdbcConnection.java:116)
+	at org.h2.jdbc.JdbcConnection.<init>(JdbcConnection.java:100)
+	at org.h2.Driver.connect(Driver.java:69)
+	at org.h2.server.web.WebServer.getConnection(WebServer.java:735)
+	at org.h2.server.web.WebApp.login(WebApp.java:947)
+	at org.h2.server.web.WebApp.process(WebApp.java:210)
+	at org.h2.server.web.WebApp.processRequest(WebApp.java:169)
+	at org.h2.server.web.WebThread.process(WebThread.java:133)
+	at org.h2.server.web.WebThread.run(WebThread.java:89)
+	at java.lang.Thread.run(Thread.java:748)
+Caused by: org.h2.jdbc.JdbcSQLException: General error: "java.lang.IllegalStateException: The file is locked: nio:D:/pm-server/DB/pmdb/data/pmdb.mv.db [1.4.196/7]" [50000-196]
+	at org.h2.message.DbException.getJdbcSQLException(DbException.java:345)
+	... 28 more
+Caused by: java.lang.IllegalStateException: The file is locked: nio:D:/pm-server/DB/pmdb/data/pmdb.mv.db [1.4.196/7]
+	at org.h2.mvstore.DataUtils.newIllegalStateException(DataUtils.java:765)
+	at org.h2.mvstore.FileStore.open(FileStore.java:173)
+	at org.h2.mvstore.MVStore.<init>(MVStore.java:347)
+	... 23 more
+2026-10-05 12:19:51 jdbc[5]: exception
+org.h2.jdbc.JdbcSQLException: Table "T06_PROJECTROLES" not found; SQL statement:
+SELECT p.PK_T01, p.PJ_Code, p.PJ_Name, p.PJ_Status, p.PJ_FolderLink,        p.PJ_StartDate, p.PJ_EndDate, r.PR_RoleType, r.PR_Right FROM T06_ProjectRoles r JOIN T01_Project p ON r.FK_T06_PK_T01 = p.PK_T01 WHERE r.FK_T06_PK_T05 = ? AND r.PR_ignore_delete = FALSE   AND (r.PR_EndDate IS NULL OR r.PR_EndDate >= CURRENT_TIMESTAMP)   AND p.PJ_ignore_delete = FALSE ORDER BY p.PJ_Code ASC [42102-196]
+2026-10-05 12:19:51 jdbc[6]: exception
+org.h2.jdbc.JdbcSQLException: Table "T09_MESSAGEREAD" not found; SQL statement:
+SELECT COUNT(r.PK_T09) FROM T09_MessageRead r JOIN T08_MultiComment m ON r.FK_T09_PK_T08 = m.PK_T08 WHERE r.FK_T09_PK_T05 = ? AND r.MR_MessageRead = FALSE AND m.MC_ignore_delete = FALSE [42102-196]
+2026-10-05 12:20:10 jdbc[7]: exception
+org.h2.jdbc.JdbcSQLException: Table "T03_EVENT" not found; SQL statement:
+SELECT e.PK_T03, e.FK_T03_PK_T01, p.PJ_Code, p.PJ_Name, e.EV_Title, e.EV_Status,        e.EV_EventStartDateTime, e.EV_EventEndDateTime,        (e.EV_Frozen = TRUE OR ph.PH_Frozen = TRUE) AS is_effective_frozen FROM T03_Event e JOIN T01_Project p ON e.FK_T03_PK_T01 = p.PK_T01 JOIN T02_Phase ph ON e.FK_T03_PK_T02 = ph.PK_T02 WHERE e.FK_T03_PK_T05_Owner = ? AND e.EV_ignore_delete = FALSE ORDER BY is_effective_frozen ASC, e.EV_Status ASC, e.EV_EventStartDateTime ASC [42102-196]
+2026-10-05 12:20:11 jdbc[8]: exception
+org.h2.jdbc.JdbcSQLException: Table "T04_MISSIONS" not found; SQL statement:
+SELECT m.PK_T04, m.FK_T04_PK_T01, p.PJ_Code, p.PJ_Name, m.MS_Title, m.MS_Status,        m.MS_TargetStartDate, m.MS_TargetEndDate,        (m.MS_Frozen OR e.EV_Frozen OR ph.PH_Frozen) AS EffectiveFrozen FROM T04_Missions m JOIN T01_Project p ON m.FK_T04_PK_T01 = p.PK_T01 JOIN T03_Event e ON m.FK_T04_PK_T03 = e.PK_T03 JOIN T02_Phase ph ON m.FK_T04_PK_T02 = ph.PK_T02 WHERE m.FK_T04_PK_T05_PIC = ? AND m.MS_ignore_delete = FALSE ORDER BY m.MS_Status ASC, EffectiveFrozen ASC, m.MS_TargetStartDate ASC [42102-196]
+2026-10-05 12:20:11 jdbc[9]: exception
+org.h2.jdbc.JdbcSQLException: Table "T07_JOINMISSIONS" not found; SQL statement:
+SELECT m.PK_T04, m.FK_T04_PK_T01, p.PJ_Code, p.PJ_Name, m.MS_Title, m.MS_Status,        m.MS_TargetStartDate, m.MS_TargetEndDate FROM T07_JoinMissions j JOIN T04_Missions m ON j.FK_T07_PK_T04 = m.PK_T04 JOIN T01_Project p ON m.FK_T04_PK_T01 = p.PK_T01 WHERE j.FK_T07_PK_T05 = ? AND j.JM_ignore_delete = FALSE AND m.MS_ignore_delete = FALSE ORDER BY m.MS_TargetStartDate ASC [42102-196]
+2026-10-05 12:25:12 jdbc[4]: exception
+org.h2.jdbc.JdbcSQLException: Table "T06_PROJECTROLES" not found; SQL statement:
+SELECT p.PK_T01, p.PJ_Code, p.PJ_Name, p.PJ_Status, p.PJ_FolderLink,        p.PJ_StartDate, p.PJ_EndDate, r.PR_RoleType, r.PR_Right FROM T06_ProjectRoles r JOIN T01_Project p ON r.FK_T06_PK_T01 = p.PK_T01 WHERE r.FK_T06_PK_T05 = ? AND r.PR_ignore_delete = FALSE   AND (r.PR_EndDate IS NULL OR r.PR_EndDate >= CURRENT_TIMESTAMP)   AND p.PJ_ignore_delete = FALSE ORDER BY p.PJ_Code ASC [42102-196]
+2026-10-05 12:25:12 jdbc[5]: exception
+org.h2.jdbc.JdbcSQLException: Table "T09_MESSAGEREAD" not found; SQL statement:
+SELECT COUNT(r.PK_T09) FROM T09_MessageRead r JOIN T08_MultiComment m ON r.FK_T09_PK_T08 = m.PK_T08 WHERE r.FK_T09_PK_T05 = ? AND r.MR_MessageRead = FALSE AND m.MC_ignore_delete = FALSE [42102-196]
+2026-10-11 16:20:20 jdbc[57]: exception
+org.h2.jdbc.JdbcSQLException: Cannot parse "TIMESTAMP" constant ; SQL statement:
+UPDATE "T06_ProjectRoles" SET "PR_EndDate" = '' WHERE "PK_T06" = 353 [22007-196]
+	at org.h2.message.DbException.getJdbcSQLException(DbException.java:345)
+	at org.h2.message.DbException.get(DbException.java:168)
+	at org.h2.value.ValueTimestamp.parse(ValueTimestamp.java:122)
+	at org.h2.value.Value.convertTo(Value.java:950)
+	at org.h2.table.Column.convert(Column.java:167)
+	at org.h2.command.dml.Update.update(Update.java:121)
+	at org.h2.command.CommandContainer.update(CommandContainer.java:101)
+	at org.h2.command.Command.executeUpdate(Command.java:260)
+	at org.h2.jdbc.JdbcStatement.executeUpdateInternal(JdbcStatement.java:136)
+	at org.h2.jdbc.JdbcStatement.executeUpdate(JdbcStatement.java:121)
+	at handlers.DBAdminHandler.handleExecute(DBAdminHandler.java:121)
+	at handlers.DBAdminHandler.handle(DBAdminHandler.java:54)
+	at com.sun.net.httpserver.Filter$Chain.doFilter(Unknown Source)
+	at sun.net.httpserver.AuthFilter.doFilter(Unknown Source)
+	at com.sun.net.httpserver.Filter$Chain.doFilter(Unknown Source)
+	at sun.net.httpserver.ServerImpl$Exchange$LinkHandler.handle(Unknown Source)
+	at com.sun.net.httpserver.Filter$Chain.doFilter(Unknown Source)
+	at sun.net.httpserver.ServerImpl$Exchange.run(Unknown Source)
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(Unknown Source)
+	at java.util.concurrent.ThreadPoolExecutor$Worker.run(Unknown Source)
+	at java.lang.Thread.run(Unknown Source)
+Caused by: java.lang.StringIndexOutOfBoundsException: String index out of range: 0
+	at java.lang.String.charAt(Unknown Source)
+	at org.h2.util.DateTimeUtils.parseDateValue(DateTimeUtils.java:305)
+	at org.h2.value.ValueTimestamp.parseTry(ValueTimestamp.java:140)
+	at org.h2.value.ValueTimestamp.parse(ValueTimestamp.java:120)
+	... 18 more
+2026-10-11 16:26:06 jdbc[33]: exception
+org.h2.jdbc.JdbcSQLException: Cannot parse "TIMESTAMP" constant ; SQL statement:
+UPDATE "T05_Staff" SET "ST_DeActiveDate" = '' WHERE "PK_T05" = 1 [22007-196]
+	at org.h2.message.DbException.getJdbcSQLException(DbException.java:345)
+	at org.h2.message.DbException.get(DbException.java:168)
+	at org.h2.value.ValueTimestamp.parse(ValueTimestamp.java:122)
+	at org.h2.value.Value.convertTo(Value.java:950)
+	at org.h2.table.Column.convert(Column.java:167)
+	at org.h2.command.dml.Update.update(Update.java:121)
+	at org.h2.command.CommandContainer.update(CommandContainer.java:101)
+	at org.h2.command.Command.executeUpdate(Command.java:260)
+	at org.h2.jdbc.JdbcStatement.executeUpdateInternal(JdbcStatement.java:136)
+	at org.h2.jdbc.JdbcStatement.executeUpdate(JdbcStatement.java:121)
+	at handlers.DBAdminHandler.handleExecute(DBAdminHandler.java:121)
+	at handlers.DBAdminHandler.handle(DBAdminHandler.java:54)
+	at com.sun.net.httpserver.Filter$Chain.doFilter(Unknown Source)
+	at sun.net.httpserver.AuthFilter.doFilter(Unknown Source)
+	at com.sun.net.httpserver.Filter$Chain.doFilter(Unknown Source)
+	at sun.net.httpserver.ServerImpl$Exchange$LinkHandler.handle(Unknown Source)
+	at com.sun.net.httpserver.Filter$Chain.doFilter(Unknown Source)
+	at sun.net.httpserver.ServerImpl$Exchange.run(Unknown Source)
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(Unknown Source)
+	at java.util.concurrent.ThreadPoolExecutor$Worker.run(Unknown Source)
+	at java.lang.Thread.run(Unknown Source)
+Caused by: java.lang.StringIndexOutOfBoundsException: String index out of range: 0
+	at java.lang.String.charAt(Unknown Source)
+	at org.h2.util.DateTimeUtils.parseDateValue(DateTimeUtils.java:305)
+	at org.h2.value.ValueTimestamp.parseTry(ValueTimestamp.java:140)
+	at org.h2.value.ValueTimestamp.parse(ValueTimestamp.java:120)
+	... 18 more
+2026-10-11 16:26:08 jdbc[34]: exception
+org.h2.jdbc.JdbcSQLException: Cannot parse "TIMESTAMP" constant ; SQL statement:
+UPDATE "T05_Staff" SET "ST_DeActiveDate" = '' WHERE "PK_T05" = 2 [22007-196]
+	at org.h2.message.DbException.getJdbcSQLException(DbException.java:345)
+	at org.h2.message.DbException.get(DbException.java:168)
+	at org.h2.value.ValueTimestamp.parse(ValueTimestamp.java:122)
+	at org.h2.value.Value.convertTo(Value.java:950)
+	at org.h2.table.Column.convert(Column.java:167)
+	at org.h2.command.dml.Update.update(Update.java:121)
+	at org.h2.command.CommandContainer.update(CommandContainer.java:101)
+	at org.h2.command.Command.executeUpdate(Command.java:260)
+	at org.h2.jdbc.JdbcStatement.executeUpdateInternal(JdbcStatement.java:136)
+	at org.h2.jdbc.JdbcStatement.executeUpdate(JdbcStatement.java:121)
+	at handlers.DBAdminHandler.handleExecute(DBAdminHandler.java:121)
+	at handlers.DBAdminHandler.handle(DBAdminHandler.java:54)
+	at com.sun.net.httpserver.Filter$Chain.doFilter(Unknown Source)
+	at sun.net.httpserver.AuthFilter.doFilter(Unknown Source)
+	at com.sun.net.httpserver.Filter$Chain.doFilter(Unknown Source)
+	at sun.net.httpserver.ServerImpl$Exchange$LinkHandler.handle(Unknown Source)
+	at com.sun.net.httpserver.Filter$Chain.doFilter(Unknown Source)
+	at sun.net.httpserver.ServerImpl$Exchange.run(Unknown Source)
+	at java.util.concurrent.ThreadPoolExecutor.runWorker(Unknown Source)
+	at java.util.concurrent.ThreadPoolExecutor$Worker.run(Unknown Source)
+	at java.lang.Thread.run(Unknown Source)
+Caused by: java.lang.StringIndexOutOfBoundsException: String index out of range: 0
+	at java.lang.String.charAt(Unknown Source)
+	at org.h2.util.DateTimeUtils.parseDateValue(DateTimeUtils.java:305)
+	at org.h2.value.ValueTimestamp.parseTry(ValueTimestamp.java:140)
+	at org.h2.value.ValueTimestamp.parse(ValueTimestamp.java:120)
+	... 18 more

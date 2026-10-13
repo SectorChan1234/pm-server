@@ -1,0 +1,306 @@
+/* ==========================================================================
+   ProjectBook Collaboration Portal - Phase Management Styles
+   File: /public/css/portal-function-phase.css
+   ========================================================================== */
+
+/* Phase List Container */
+.phase-list-container {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* Phase Card Base */
+.phase-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 16px 20px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    transition: all 0.2s ease;
+}
+
+.phase-card:hover {
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.08);
+    border-color: #cbd5e1;
+}
+
+/* Frozen Phase Card Styling (冰藍/灰暗淡質感) */
+.phase-card-frozen {
+    background: #f8fafc;
+    border-color: #cbd5e1;
+    border-left: 4px solid #94a3b8;
+}
+
+/* Phase Header */
+.phase-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.phase-card-title-zone {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.phase-seq-tag {
+    background: #e0f2fe;
+    color: #0369a1;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 4px;
+    letter-spacing: 0.5px;
+}
+
+.phase-card-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: #1e293b;
+}
+
+.phase-card-desc {
+    font-size: 13px;
+    color: #475569;
+    line-height: 1.5;
+    margin-bottom: 12px;
+    white-space: pre-wrap;
+}
+
+/* Schedule Grid */
+.phase-schedule-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 8px 16px;
+    background: #f8fafc;
+    border: 1px solid #edf2f7;
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin-bottom: 12px;
+}
+
+.schedule-box {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+}
+
+.schedule-box.full-width {
+    grid-column: 1 / -1;
+}
+
+.schedule-lbl {
+    font-weight: 600;
+    color: #64748b;
+    min-width: 52px;
+}
+
+.schedule-val {
+    color: #1e293b;
+    font-family: inherit;
+}
+
+.phase-card-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed #e2e8f0;
+}
+
+/* ==========================================================================
+   Project Phase Gantt Chart Styles (Updated: Today Line & No Frozen)
+   ========================================================================== */
+.phase-gantt-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-bottom: 24px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.phase-gantt-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #edf2f7;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.phase-gantt-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: #2d3748;
+}
+
+.phase-gantt-controls {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+.phase-gantt-legend {
+    display: flex;
+    gap: 16px;
+    font-size: 12px;
+    color: #718096;
+}
+
+.gantt-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.legend-bar {
+    width: 14px;
+    height: 8px;
+    border-radius: 2px;
+}
+
+.legend-bar.target {
+    background: #bee3f8;
+    border: 1px solid #63b3ed;
+}
+
+.legend-bar.actual {
+    background: #48bb78;
+}
+
+.phase-gantt-wrapper {
+    overflow-x: auto;
+    position: relative;
+    padding-top: 24px;
+}
+
+/* 時間軸標記欄 */
+.phase-gantt-timeline {
+    position: absolute;
+    top: 0;
+    left: 200px;
+    right: 0;
+    height: 20px;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.gantt-time-mark {
+    position: absolute;
+    top: 0;
+    transform: translateX(-50%);
+    font-size: 11px;
+    color: #a0aec0;
+    font-family: monospace;
+}
+
+/* 甘特圖行 */
+.gantt-row {
+    display: flex;
+    align-items: center;
+    height: 48px;
+    border-bottom: 1px solid #f7fafc;
+    position: relative;
+}
+
+.gantt-row:hover {
+    background-color: #f8fafc;
+}
+
+.gantt-row-label {
+    width: 200px;
+    min-width: 200px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #4a5568;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding-right: 12px;
+    cursor: default;
+}
+
+.gantt-row-track {
+    flex: 1;
+    position: relative;
+    height: 100%;
+}
+
+/* 網格背景垂直線 */
+.gantt-grid-line {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    border-left: 1px dashed #edf2f7;
+    pointer-events: none;
+}
+
+/* 今日時間線 (Today Marker) */
+.gantt-today-line {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: #ef4444;
+    z-index: 10;
+    pointer-events: none;
+    box-shadow: 0 0 4px rgba(239, 68, 68, 0.4);
+}
+
+.gantt-today-badge {
+    position: absolute;
+    top: -20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #ef4444;
+    color: white;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 4px;
+    border-radius: 3px;
+    white-space: nowrap;
+}
+
+/* 長條樣式 */
+.gantt-bar {
+    position: absolute;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: opacity 0.15s ease;
+}
+
+.gantt-bar:hover {
+    opacity: 0.85;
+}
+
+.gantt-bar.target {
+    top: 8px;
+    height: 12px;
+    background: #bee3f8;
+    border: 1px solid #63b3ed;
+}
+
+.gantt-bar.actual {
+    top: 24px;
+    height: 14px;
+    background: #48bb78;
+}
+
+.gantt-bar-empty {
+    position: absolute;
+    top: 14px;
+    left: 8px;
+    font-size: 11px;
+    color: #a0aec0;
+    font-style: italic;
+}

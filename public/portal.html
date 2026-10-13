@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ProjectBook - Collaboration Portal</title>
+    
+    <!-- 1. Core Framework Styles -->
+    <link rel="stylesheet" href="/css/portal.css">
+	<link rel="stylesheet" href="/css/portal-function-event.css">
+	<link rel="stylesheet" href="/css/portal-function-phase.css">
+	<link rel="stylesheet" href="/css/portal-function-project.css">
+	<link rel="stylesheet" href="/css/portal-function-shortcut.css">
+	<link rel="stylesheet" href="/css/portal-function-ganttchart.css">
+</head>
+<body>
+
+    <!-- Top Navigation Bar -->
+    <header>
+        <div class="brand-zone">
+            <span class="brand-title" onclick="resetToOverview()" title="ProjectBook Overview" style="cursor: pointer;">ProjectBook</span>
+            <span class="brand-sub">Project Management Portal</span>
+        </div>
+
+        <nav class="top-nav-zone">
+            <button class="top-nav-btn active" id="topNavProject" onclick="switchMainTab('project')">
+                <span class="nav-icon">📁</span> My Project
+            </button>
+            <button class="top-nav-btn" id="topNavEvent" onclick="switchMainTab('event')">
+                <span class="nav-icon">📅</span> My Event
+            </button>
+            <button class="top-nav-btn" id="topNavMission" onclick="switchMainTab('mission')">
+                <span class="nav-icon">✅</span> My Mission
+            </button>
+        </nav>
+
+        <div class="action-zone">
+            <a href="/admin/DB_TableControl.html" class="btn-admin" id="btnAdminConsole" style="display: none;">
+                ⚙ Admin Console
+            </a>
+
+            <!-- Unread Notifications Dropdown -->
+            <div class="dropdown-wrap" id="notifDropdownWrap">
+                <button class="btn-icon-badge" onclick="toggleNotifMenu(event)" title="Notifications">
+                    🔔
+                    <span class="badge-count" id="unreadCount" style="display: none;">0</span>
+                </button>
+                <div class="dropdown-menu notif-menu" id="notifMenu">
+                    <div class="notif-header">
+                        <span>Unread Notifications</span>
+                    </div>
+                    <div class="notif-list" id="notifList">
+                        <div class="empty-placeholder">No unread notifications</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- User Profile Dropdown -->
+            <div class="dropdown-wrap" id="userDropdownWrap">
+                <button class="user-profile-btn" onclick="toggleUserMenu(event)">
+                    <span class="user-avatar-tag" id="userInitial">U</span>
+                    <span id="headerUserName">User</span>
+                    <span class="dropdown-caret">▾</span>
+                </button>
+                <div class="dropdown-menu" id="userMenu">
+                    <div class="menu-item" onclick="openPasswordModal()">
+                        🔑 Change Password
+                    </div>
+                    <div class="menu-divider"></div>
+                    <div class="menu-item danger-text" onclick="logout()">
+                        🚪 Sign Out
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div class="workspace">
+        <!-- Left Sidebar: 4-Section Accordion Menu -->
+        <aside id="mainSidebar">
+            <div class="project-context-box">
+                <label class="context-label" for="projectSelect">CURRENT PROJECT:</label>
+                <!-- Standardized ID to match portal.js: projectSelect -->
+                <select id="projectSelect">
+                    <option value="">-- Select Project --</option>
+                </select>
+            </div>
+
+            <div class="accordion-container">
+                <!-- 1. My Project Accordion -->
+                <div class="acc-group expanded" id="accGroupProject">
+                    <div class="acc-header" onclick="toggleAccordion('accGroupProject')">
+                        <span class="acc-title">📁 My Project</span>
+                        <span class="acc-arrow">▼</span>
+                    </div>
+                    <ul class="acc-menu">
+                        <li class="acc-item" onclick="switchView('new-project')">+ New Project</li>
+                        <li class="acc-item" onclick="switchView('project-detail')">Project Detail</li>
+                        <li class="acc-item" onclick="switchView('project-phase')">Project Phase</li>
+                        <li class="acc-item" onclick="switchView('member-list')">Member List</li>
+                        <li class="acc-item" id="menuManageMember" style="display: none;" onclick="switchView('manage-member')">Manage Member</li>
+                    </ul>
+                </div>
+
+                <!-- 2. My Event Accordion -->
+                <div class="acc-group" id="accGroupEvent">
+                    <div class="acc-header" onclick="toggleAccordion('accGroupEvent')">
+                        <span class="acc-title">📅 My Event</span>
+                        <span class="acc-arrow">▶</span>
+                    </div>
+                    <ul class="acc-menu">
+                        <li class="acc-item" onclick="switchView('new-event')">+ New Event</li>
+                        <li class="acc-item" onclick="switchView('event-detail')">Event Detail</li>
+                        <li class="acc-item" onclick="switchView('my-handle-event')">My Handle Event</li>
+                    </ul>
+                </div>
+
+                <!-- 3. My Mission Accordion -->
+                <div class="acc-group" id="accGroupMission">
+                    <div class="acc-header" onclick="toggleAccordion('accGroupMission')">
+                        <span class="acc-title">✅ My Mission</span>
+                        <span class="acc-arrow">▶</span>
+                    </div>
+                    <ul class="acc-menu">
+                        <li class="acc-item" onclick="switchView('new-mission')">+ New Mission</li>
+                        <li class="acc-item" onclick="switchView('mission-detail')">Mission Detail</li>
+                        <li class="acc-item" onclick="switchView('assign-mission')">Assign Mission</li>
+                        <li class="acc-item" onclick="switchView('my-handle-mission')">My Handle Mission</li>
+                        <li class="acc-item" onclick="switchView('my-joined-mission')">My Joined Mission</li>
+                    </ul>
+                </div>
+
+                <!-- 4. My Shortcut Accordion -->
+                <div class="acc-group" id="accGroupShortcut">
+                    <div class="acc-header" onclick="toggleAccordion('accGroupShortcut')">
+                        <span class="acc-title">⭐ My Shortcut</span>
+                        <span class="acc-arrow">▶</span>
+                    </div>
+                    <ul class="acc-menu" id="shortcutMenuList">
+                        <li class="acc-item" onclick="switchView('manage-shortcut')">⚙ Manage Shortcut</li>
+                    </ul>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Canvas -->
+        <main>
+            <div class="card">
+                <div class="card-head">
+                    <h2 id="viewHeading">Project Overview</h2>
+                    <span class="user-tag" id="viewRole">Role: -</span>
+                </div>
+                <div id="viewContent">
+                    <div class="empty-placeholder">Select an item from the left navigation to view contents.</div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Discussion Thread Drawer (M2) -->
+        <section class="thread-drawer" id="threadDrawer">
+            <div class="thread-header">
+                <div>
+                    <h3 id="threadTitle">Discussion Thread</h3>
+                    <div class="thread-scope-badge" id="threadScope">Project Level</div>
+                </div>
+                <button class="btn-refresh-icon" onclick="refreshCurrentThread()" title="Refresh Thread">↻</button>
+            </div>
+            <div class="thread-messages" id="threadMessages">
+                <div class="empty-placeholder">Click on a project, event, or mission to view messages.</div>
+            </div>
+            <div class="thread-compose">
+                <div class="quote-banner" id="quoteBanner" style="display: none;">
+                    <span id="quoteLabel">Replying to...</span>
+                    <button class="btn-link" onclick="cancelQuote()">Cancel</button>
+                </div>
+                <textarea id="commentText" placeholder="Write a comment (supports nested quotes)..." onkeydown="handleCommentKeyDown(event)"></textarea>
+                <div class="thread-compose-bar">
+                    <span class="compose-hint">Ctrl + Enter to send</span>
+                    <button class="btn-submit" onclick="submitComment()">Send</button>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- Modal: Change Password -->
+    <div class="modal-backdrop" id="pwdModal">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3>Change Password</h3>
+                <button class="modal-close-btn" onclick="closeModal('pwdModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-field">
+                    <label for="oldPwdInput">Current Password</label>
+                    <input type="password" id="oldPwdInput" placeholder="Enter current password" autocomplete="current-password">
+                </div>
+                <div class="form-field">
+                    <label for="newPwdInput">New Password</label>
+                    <input type="password" id="newPwdInput" placeholder="Enter new password" autocomplete="new-password">
+                </div>
+                <div class="form-field">
+                    <label for="confirmPwdInput">Confirm New Password</label>
+                    <input type="password" id="confirmPwdInput" placeholder="Re-enter new password" autocomplete="new-password">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeModal('pwdModal')">Cancel</button>
+                <button class="btn-submit" onclick="submitPasswordChange()">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================================================================= -->
+    <!-- Scripts (基礎核心 portal.js 先載入以提供 registerView，各子模組隨後註冊) -->
+    <!-- ================================================================= -->
+    <!-- 1. 核心底層與路由器 -->
+    <script src="/js/common-function.js"></script>
+    <script src="/js/portal.js"></script>
+
+    <!-- 2. Project 模組 -->
+    <script src="/js/portal-function-project.js"></script>
+    <script src="/js/portal-function-project-Modal.js"></script>
+    <script src="/js/portal-function-project-Member.js"></script>
+	<script src="/js/portal-function-project-Member-GanttChart.js"></script>
+
+    <!-- 3. Phase 模組 -->
+    <script src="/js/portal-function-phase.js"></script>
+    <script src="/js/portal-function-phase-GanttChart.js"></script>
+    <script src="/js/portal-function-phase-Modal.js"></script> 
+
+    <!-- 4. Event 模組 -->
+    <script src="/js/portal-function-event-GanttChart.js"></script>
+    <script src="/js/portal-function-event-Modal.js"></script>
+    <script src="/js/portal-function-event.js"></script>
+</body>
+</html>

@@ -136,7 +136,7 @@ function renderEventGanttChartInner(events) {
         `;
     }
 
-    // 防禦邊界：若起訖點相同，自動補上 24 小時視窗，避免視窗寬度為 0 崩潰
+    // 防禦邊界：若起訖點相同，自動擴充 24 小時視窗
     if (minTime >= maxTime) {
         maxTime = minTime + 86400000;
     }
@@ -150,7 +150,6 @@ function renderEventGanttChartInner(events) {
         eventGanttToYear = smartDefaultToYear;
     }
 
-    // 初始化 Start Date：預設為今日
     const todayStr = new Date().toISOString().substring(0, 10);
     if (!eventGanttFixedStartDate) {
         eventGanttFixedStartDate = todayStr;
@@ -167,7 +166,7 @@ function renderEventGanttChartInner(events) {
     let trackContainerStyle = 'overflow-x: hidden;';
 
     const isScrollable = (eventGanttScaleMode === 'SCROLLABLE');
-    const isDayOrHourScale = (eventGanttScaleUnit === 'HOURLY' || eventGanttScaleUnit === 'DAILY');
+    const isDayOrHourScale = isScrollable && (eventGanttScaleUnit === 'HOURLY' || eventGanttScaleUnit === 'DAILY');
 
     if (eventGanttScaleMode === 'ADAPTIVE') {
         let effectiveMin = minTime;
@@ -196,15 +195,13 @@ function renderEventGanttChartInner(events) {
         trackInnerWidthStyle = 'width: 100%; min-width: 100%;';
         trackContainerStyle = 'overflow-x: hidden;';
     } else {
-        // Fixed Step 模式
         if (eventGanttScaleUnit === 'HOURLY') {
-            // Hourly: 起始日 00:00:00 至 (起始日 + Period Days) 的 23:59:59
             const sDate = new Date(eventGanttFixedStartDate.replace(/-/g, '/') + ' 00:00:00');
             viewStart = isNaN(sDate.getTime()) ? minTime : sDate.getTime();
 
             const eDate = new Date(viewStart);
             eDate.setDate(eDate.getDate() + eventGanttDaysPeriod + 1);
-            viewEnd = eDate.getTime() - 1; // 結束於最後一日的 23:59:59
+            viewEnd = eDate.getTime() - 1;
         } else if (eventGanttScaleUnit === 'DAILY') {
             const sDate = new Date(eventGanttFixedStartDate.replace(/-/g, '/') + ' 00:00:00');
             const eDate = new Date(eventGanttFixedEndDate.replace(/-/g, '/') + ' 23:59:59');
@@ -299,42 +296,47 @@ function renderEventGanttChartInner(events) {
                 }
             }
 
-            let rowTodayLineHtml = '';
-            if (todayPct !== null) {
-                rowTodayLineHtml = `<div class="pb-gantt-today-line" style="left: ${todayPct.toFixed(2)}%;"></div>`;
+            const hasPhaseBar = Boolean(phTargetBarHtml || phActualBarHtml);
+
+            // ★ Daily / Hourly 模式下：若無排程長條，隱藏該 Phase Row
+            if (!isDayOrHourScale || hasPhaseBar) {
+                let rowTodayLineHtml = '';
+                if (todayPct !== null) {
+                    rowTodayLineHtml = `<div class="pb-gantt-today-line" style="left: ${todayPct.toFixed(2)}%;"></div>`;
+                }
+
+                const viewPhaseBtnHtml = canViewPhase ? `
+                    <button type="button" class="btn-link" style="margin-left: 8px; font-size: 11px; color: #0284c7; text-decoration: underline; background: none; border: none; cursor: pointer; padding: 0;" 
+                            onclick="switchView('project-phase')" title="Jump to Project Phase Management">[View]</button>
+                ` : '';
+
+                const phaseRowClass = `pb-gantt-left-row event-gantt-left-row ${isPhaseFrozen ? 'is-frozen' : ''} ${isPhaseDel ? 'is-deleted' : ''}`;
+                const phaseRightClass = `pb-gantt-right-row event-gantt-right-row ${isPhaseFrozen ? 'is-frozen' : ''} ${isPhaseDel ? 'is-deleted' : ''}`;
+
+                leftColumnRowsHtml += `
+                    <div class="${phaseRowClass}" style="min-height: 40px; padding: 4px 8px; display: flex; align-items: center; ${!isPhaseFrozen ? 'background: #f8fafc; border-color: #e2e8f0;' : ''}">
+                        <div style="font-size: 12px; font-weight: 700; line-height: 1.35; word-break: break-word; color: ${isPhaseFrozen ? '#b91c1c' : '#1e3a8a'}; width: 100%;">
+                            📁 ${escapeHtml(pName)}
+                            ${isPhaseFrozen ? '<span style="color:#ef4444; font-size:10px; font-weight:700; margin-left: 4px;">[Frozen]</span>' : ''}
+                            ${isPhaseDel ? '<span style="color:#94a3b8; font-size:10px; margin-left: 4px;">[Deleted]</span>' : ''}
+                            ${viewPhaseBtnHtml}
+                        </div>
+                    </div>
+                `;
+
+                rightTrackRowsHtml += `
+                    <div class="${phaseRightClass}" style="min-height: 40px; position: relative; ${!isPhaseFrozen ? 'background: #f8fafc; border-color: #e2e8f0;' : ''}">
+                        <div style="height: 100%; width: 100%; position: relative; overflow: visible;">
+                            ${gridLinesHtml}
+                            ${rowTodayLineHtml}
+                            ${phTargetBarHtml}
+                            ${phActualBarHtml}
+                        </div>
+                    </div>
+                `;
+
+                globalRowIndex++;
             }
-
-            const viewPhaseBtnHtml = canViewPhase ? `
-                <button type="button" class="btn-link" style="margin-left: 8px; font-size: 11px; color: #0284c7; text-decoration: underline; background: none; border: none; cursor: pointer; padding: 0;" 
-                        onclick="switchView('project-phase')" title="Jump to Project Phase Management">[View]</button>
-            ` : '';
-
-            const phaseRowClass = `pb-gantt-left-row event-gantt-left-row ${isPhaseFrozen ? 'is-frozen' : ''} ${isPhaseDel ? 'is-deleted' : ''}`;
-            const phaseRightClass = `pb-gantt-right-row event-gantt-right-row ${isPhaseFrozen ? 'is-frozen' : ''} ${isPhaseDel ? 'is-deleted' : ''}`;
-
-            leftColumnRowsHtml += `
-                <div class="${phaseRowClass}" style="min-height: 40px; padding: 4px 8px; display: flex; align-items: center; ${!isPhaseFrozen ? 'background: #f8fafc; border-color: #e2e8f0;' : ''}">
-                    <div style="font-size: 12px; font-weight: 700; line-height: 1.35; word-break: break-word; color: ${isPhaseFrozen ? '#b91c1c' : '#1e3a8a'}; width: 100%;">
-                        📁 ${escapeHtml(pName)}
-                        ${isPhaseFrozen ? '<span style="color:#ef4444; font-size:10px; font-weight:700; margin-left: 4px;">[Frozen]</span>' : ''}
-                        ${isPhaseDel ? '<span style="color:#94a3b8; font-size:10px; margin-left: 4px;">[Deleted]</span>' : ''}
-                        ${viewPhaseBtnHtml}
-                    </div>
-                </div>
-            `;
-
-            rightTrackRowsHtml += `
-                <div class="${phaseRightClass}" style="min-height: 40px; position: relative; ${!isPhaseFrozen ? 'background: #f8fafc; border-color: #e2e8f0;' : ''}">
-                    <div style="height: 100%; width: 100%; position: relative; overflow: visible;">
-                        ${gridLinesHtml}
-                        ${rowTodayLineHtml}
-                        ${phTargetBarHtml}
-                        ${phActualBarHtml}
-                    </div>
-                </div>
-            `;
-
-            globalRowIndex++;
         }
 
         // 2. 繪製 Event 列
@@ -356,7 +358,6 @@ function renderEventGanttChartInner(events) {
                 const left = Math.max(tStartRaw, 0);
                 const right = Math.min(tEndRaw, 100);
                 
-                // ★ 精度優化：在 Hourly/Fixed Step 模式下採用 0.15% 微保底，精準呈現 1 小時真實長度
                 const minBarWidthPct = (eventGanttScaleMode === 'SCROLLABLE') ? 0.15 : 1.2;
                 const width = Math.max(right - left, minBarWidthPct);
 
@@ -378,6 +379,11 @@ function renderEventGanttChartInner(events) {
                         </div>
                     `;
                 }
+            }
+
+            // ★ Daily / Hourly 模式下：若無排程長條，隱藏該 Event Row
+            if (isDayOrHourScale && !eventBarHtml) {
+                return;
             }
 
             const emptyNotice = (!eventBarHtml) 
@@ -426,6 +432,12 @@ function renderEventGanttChartInner(events) {
         });
     });
 
+    // 若該時段內所有項目皆無排程，給予優雅引導提示
+    if (!leftColumnRowsHtml) {
+        leftColumnRowsHtml = `<div style="padding: 18px 10px; font-size: 12px; color: #94a3b8; font-style: italic;">No scheduled rows in this period.</div>`;
+        rightTrackRowsHtml = `<div style="padding: 18px 10px; font-size: 12px; color: #94a3b8; font-style: italic;">(Adjust 'From' date or 'Period' to view scheduled events)</div>`;
+    }
+
     let yearOptions = '';
     const minSelectYear = minStartYearFound ? Math.min(minStartYearFound, currentYear - 1) : currentYear - 1;
     const maxSelectYear = Math.max(maxEndYearFound ? maxEndYearFound : currentYear + 5, currentYear + 5);
@@ -470,7 +482,7 @@ function renderEventGanttChartInner(events) {
                 </div>
 
                 <!-- 2. 日期區間控制列 (Hourly 顯示 From + Period [Days]，Daily 顯示 From / To) -->
-                <div id="wrapEventGanttDateRange" style="display: ${isScrollable && isDayOrHourScale ? 'flex' : 'none'}; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #334155; background: #f8fafc; padding: 2px 8px; border-radius: 4px; border: 1px solid #e2e8f0;">
+                <div id="wrapEventGanttDateRange" style="display: ${isDayOrHourScale ? 'flex' : 'none'}; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #334155; background: #f8fafc; padding: 2px 8px; border-radius: 4px; border: 1px solid #e2e8f0;">
                     <span>From:</span>
                     <input type="date" id="selEventGanttStartDate" value="${eventGanttFixedStartDate}" style="padding: 2px 4px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 4px; background: #fff;" onchange="handleEventGanttDateRangeChange('start', this.value)">
                     
@@ -607,7 +619,7 @@ function handleEventGanttDaysChange(val) {
 }
 
 /**
- * 固定步長刻度生成器 (Hourly 支援 00:00 顯示 DD/MM 00，其餘顯示 HH)
+ * 固定步長刻度生成器
  */
 function generateEventFixedMarks(viewStart, viewEnd, unit) {
     const marks = [];
@@ -647,12 +659,10 @@ function generateEventFixedMarks(viewStart, viewEnd, unit) {
             if (unit === 'HOURLY') {
                 const hh = String(cur.getHours()).padStart(2, '0');
                 if (cur.getHours() === 0) {
-                    // ★ 00:00 顯示為 DD/MM 00 (日/月 00)
                     const dd = String(cur.getDate()).padStart(2, '0');
                     const mm = String(cur.getMonth() + 1).padStart(2, '0');
                     label = `${dd}/${mm} 00`;
                 } else {
-                    // ★ 01:00 ~ 23:00 顯示為純兩位數 HH
                     label = `${hh}`;
                 }
             } else if (unit === 'DAILY') {

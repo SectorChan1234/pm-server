@@ -229,10 +229,11 @@ function renderEventGanttChartInner(events) {
 
     let markersHtml = '';
     let gridLinesHtml = '';
-    timeMarks.forEach(mk => {
-        markersHtml += `<span class="gantt-time-mark" style="left: ${mk.pct.toFixed(2)}%; position: absolute; transform: translateX(-50%); font-size: 11px; color: #64748b; font-family: monospace; white-space: nowrap;">${mk.label}</span>`;
-        gridLinesHtml += `<div class="gantt-grid-line" style="left: ${mk.pct.toFixed(2)}%; position: absolute; top: 0; bottom: 0; border-left: 1px dashed #e2e8f0; pointer-events: none;"></div>`;
-    });
+   timeMarks.forEach(mk => {
+     const dayStartClass = mk.isDayStart ? 'is-day-start' : '';
+     markersHtml += `<span class="gantt-time-mark ${dayStartClass}" style="left: ${mk.pct.toFixed(2)}%; position: absolute; transform: translateX(-50%); font-size: 11px; color: #64748b; font-family: monospace; white-space: nowrap;">${mk.label}</span>`;
+     gridLinesHtml += `<div class="gantt-grid-line" style="left: ${mk.pct.toFixed(2)}%; position: absolute; top: 0; bottom: 0; border-left: 1px dashed #e2e8f0; pointer-events: none;"></div>`;
+ });
 
     const todayPct = (showEventGanttTodayLine && todayTime >= viewStart && todayTime <= viewEnd)
         ? ((todayTime - viewStart) / viewDuration) * 100
@@ -657,17 +658,18 @@ function generateEventFixedMarks(viewStart, viewEnd, unit) {
         if (t >= viewStart) {
             const pct = ((t - viewStart) / totalDuration) * 100;
             let label = '';
-
-            if (unit === 'HOURLY') {
-                const hh = String(cur.getHours()).padStart(2, '0');
-                if (cur.getHours() === 0) {
-                    const dd = String(cur.getDate()).padStart(2, '0');
-                    const mm = String(cur.getMonth() + 1).padStart(2, '0');
-                    label = `${dd}/${mm} 00`;
-                } else {
-                    label = `${hh}`;
-                }
-            } else if (unit === 'DAILY') {
+            let isDayStart = false;
+             if (unit === 'HOURLY') {
+             const hh = String(cur.getHours()).padStart(2, '0');
+             if (cur.getHours() === 0) {
+                 const dd = String(cur.getDate()).padStart(2, '0');
+                 const mm = String(cur.getMonth() + 1).padStart(2, '0');
+                 label = `${dd}/${mm} 00`;
+                 isDayStart = true; // ★ 標記為每日 00:00 刻度
+             } else {
+                 label = `${hh}`;
+             }
+         } else if (unit === 'DAILY') {
                 const mm = String(cur.getMonth() + 1).padStart(2, '0');
                 const dd = String(cur.getDate()).padStart(2, '0');
                 label = `${mm}-${dd}`;
@@ -679,7 +681,7 @@ function generateEventFixedMarks(viewStart, viewEnd, unit) {
                 label = String(cur.getFullYear());
             }
 
-            marks.push({ pct: pct, label: label });
+            marks.push({ pct: pct, label: label, isDayStart: isDayStart });
             stepCount++;
         }
 

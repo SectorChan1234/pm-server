@@ -197,9 +197,11 @@ function renderEventGanttChartInner(events) {
     } else {
         if (eventGanttScaleUnit === 'HOURLY') {
             const sDate = new Date(eventGanttFixedStartDate.replace(/-/g, '/') + ' 00:00:00');
-            viewStart = isNaN(sDate.getTime()) ? minTime : sDate.getTime();
+            const baseStart = isNaN(sDate.getTime()) ? minTime : sDate.getTime();
+            // ★ 提早一小時 (3600000 ms = 1 小時)，讓時間刻度向前預留一格緩衝
+            viewStart = baseStart - 3600000;
 
-            const eDate = new Date(viewStart);
+            const eDate = new Date(baseStart);
             eDate.setDate(eDate.getDate() + eventGanttDaysPeriod + 1);
             viewEnd = eDate.getTime() - 1;
         } else if (eventGanttScaleUnit === 'DAILY') {

@@ -11,21 +11,28 @@ let eventGanttScaleUnit = 'MONTH';
 let eventGanttToYear = null;
 let cachedEventsForGantt = [];
 
-// Fixed Step: Daily / Hourly 專屬日期區間狀態
+// Fixed Step: 日期與天數區間狀態
 let eventGanttFixedStartDate = null;
 let eventGanttFixedEndDate = null;
+let eventGanttDaysPeriod = 1; // 預設 1 天 (Hourly 模式：可選 0 ~ 7)
 
 function safeStr(val, defaultVal) {
     var def = defaultVal !== undefined ? defaultVal : '-';
     return (val !== null && val !== undefined && String(val).trim() !== '') ? val : def;
 }
 
+/**
+ * 毫秒級安全日期時間解析器 (完整保留 HH:mm:ss，杜絕捨棄時間)
+ */
 function getSafeEventDate(dStr) {
-    if (typeof parsePureDate === 'function') {
-        return parsePureDate(dStr);
-    }
     if (!dStr) return null;
-    var d = new Date(String(dStr).substring(0, 10).replace(/-/g, '/') + ' 00:00:00');
+    var s = String(dStr).trim().replace('T', ' ').replace(/\.\d+$/, '');
+    if (s.length <= 10) {
+        s = s.substring(0, 10) + ' 00:00:00';
+    } else if (s.length === 16) {
+        s = s + ':00';
+    }
+    var d = new Date(s.replace(/-/g, '/'));
     return isNaN(d.getTime()) ? null : d;
 }
 
@@ -122,11 +129,16 @@ function renderEventGanttChartInner(events) {
         });
     }
 
-    if (!hasValidDate || minTime >= maxTime) {
+    if (!hasValidDate) {
         return `
             <div class="pb-gantt-header phase-gantt-header"><span class="pb-gantt-title phase-gantt-title">Event Schedule Timeline</span></div>
             <div style="font-size: 13px; color: #a0aec0; padding: 12px 0;">No valid start or end dates specified to render timeline.</div>
         `;
+    }
+
+    // 防禦邊界：若起訖點相同，自動補上 24 小時視窗，避免視窗寬度為 0 崩潰
+    if (minTime >= maxTime) {
+        maxTime = minTime + 86400000;
     }
 
     const todayDate = getSafeEventDate(new Date().toISOString().substring(0, 10));
@@ -138,13 +150,14 @@ function renderEventGanttChartInner(events) {
         eventGanttToYear = smartDefaultToYear;
     }
 
-    // 初始化 Daily / Hourly 專屬預設日期區間
-    const defaultStartStr = new Date(Math.min(minTime, todayTime)).toISOString().substring(0, 10);
-    if (!eventGanttFixedStartDate) eventGanttFixedStartDate = defaultStartStr;
+    // 初始化 Start Date：預設為今日
+    const todayStr = new Date().toISOString().substring(0, 10);
+    if (!eventGanttFixedStartDate) {
+        eventGanttFixedStartDate = todayStr;
+    }
     if (!eventGanttFixedEndDate) {
         const dObj = new Date(eventGanttFixedStartDate.replace(/-/g, '/'));
-        const daysToAdd = (eventGanttScaleUnit === 'HOURLY') ? 3 : 14;
-        dObj.setDate(dObj.getDate() + daysToAdd);
+        dObj.setDate(dObj.getDate() + 14);
         eventGanttFixedEndDate = dObj.toISOString().substring(0, 10);
     }
 
@@ -183,7 +196,16 @@ function renderEventGanttChartInner(events) {
         trackInnerWidthStyle = 'width: 100%; min-width: 100%;';
         trackContainerStyle = 'overflow-x: hidden;';
     } else {
-        if (isDayOrHourScale) {
+        // Fixed Step 模式
+        if (eventGanttScaleUnit === 'HOURLY') {
+            // Hourly: 起始日 00:00:00 至 (起始日 + Period Days) 的 23:59:59
+            const sDate = new Date(eventGanttFixedStartDate.replace(/-/g, '/') + ' 00:00:00');
+            viewStart = isNaN(sDate.getTime()) ? minTime : sDate.getTime();
+
+            const eDate = new Date(viewStart);
+            eDate.setDate(eDate.getDate() + eventGanttDaysPeriod + 1);
+            viewEnd = eDate.getTime() - 1; // 結束於最後一日的 23:59:59
+        } else if (eventGanttScaleUnit === 'DAILY') {
             const sDate = new Date(eventGanttFixedStartDate.replace(/-/g, '/') + ' 00:00:00');
             const eDate = new Date(eventGanttFixedEndDate.replace(/-/g, '/') + ' 23:59:59');
             viewStart = isNaN(sDate.getTime()) ? minTime : sDate.getTime();
@@ -287,7 +309,6 @@ function renderEventGanttChartInner(events) {
                         onclick="switchView('project-phase')" title="Jump to Project Phase Management">[View]</button>
             ` : '';
 
-            // ★ 統一採用 .is-frozen (精確 1px 細紅框，無粗邊)
             const phaseRowClass = `pb-gantt-left-row event-gantt-left-row ${isPhaseFrozen ? 'is-frozen' : ''} ${isPhaseDel ? 'is-deleted' : ''}`;
             const phaseRightClass = `pb-gantt-right-row event-gantt-right-row ${isPhaseFrozen ? 'is-frozen' : ''} ${isPhaseDel ? 'is-deleted' : ''}`;
 
@@ -334,7 +355,11 @@ function renderEventGanttChartInner(events) {
             if (tStartRaw !== null && tEndRaw !== null && tEndRaw >= tStartRaw) {
                 const left = Math.max(tStartRaw, 0);
                 const right = Math.min(tEndRaw, 100);
-                const width = Math.max(right - left, 1.5);
+                
+                // ★ 精度優化：在 Hourly/Fixed Step 模式下採用 0.15% 微保底，精準呈現 1 小時真實長度
+                const minBarWidthPct = (eventGanttScaleMode === 'SCROLLABLE') ? 0.15 : 1.2;
+                const width = Math.max(right - left, minBarWidthPct);
+
                 if (right >= 0 && left <= 100) {
                     let barBg = '#22c55e';
                     let barBorder = '#16a34a';
@@ -364,7 +389,6 @@ function renderEventGanttChartInner(events) {
                 rowTodayLineHtml = `<div class="pb-gantt-today-line" style="left: ${todayPct.toFixed(2)}%;"></div>`;
             }
 
-            // ★ 修正：統一掛載 .is-frozen，徹底消除 4px 粗邊，右側軌道左邊框徹底回歸正常
             const eventRowClass = `pb-gantt-left-row event-gantt-left-row ${isEffectiveFrozen ? 'is-frozen' : ''} ${isDel ? 'is-deleted' : ''}`;
             const eventRightClass = `pb-gantt-right-row event-gantt-right-row ${isEffectiveFrozen ? 'is-frozen' : ''} ${isDel ? 'is-deleted' : ''}`;
 
@@ -445,12 +469,20 @@ function renderEventGanttChartInner(events) {
                     </select>
                 </div>
 
-                <!-- 2. From / To 日期區間：僅在 Fixed Step 且 Scale 為 Hourly / Daily 時顯示 -->
+                <!-- 2. 日期區間控制列 (Hourly 顯示 From + Period [Days]，Daily 顯示 From / To) -->
                 <div id="wrapEventGanttDateRange" style="display: ${isScrollable && isDayOrHourScale ? 'flex' : 'none'}; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #334155; background: #f8fafc; padding: 2px 8px; border-radius: 4px; border: 1px solid #e2e8f0;">
                     <span>From:</span>
                     <input type="date" id="selEventGanttStartDate" value="${eventGanttFixedStartDate}" style="padding: 2px 4px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 4px; background: #fff;" onchange="handleEventGanttDateRangeChange('start', this.value)">
-                    <span>To:</span>
-                    <input type="date" id="selEventGanttEndDate" value="${eventGanttFixedEndDate}" style="padding: 2px 4px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 4px; background: #fff;" onchange="handleEventGanttDateRangeChange('end', this.value)">
+                    
+                    ${eventGanttScaleUnit === 'HOURLY' ? `
+                        <span style="margin-left: 4px;">Period [Days]:</span>
+                        <select id="selEventGanttDaysPeriod" style="padding: 2px 6px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 4px; background: #fff;" onchange="handleEventGanttDaysChange(this.value)">
+                            ${[0, 1, 2, 3, 4, 5, 6, 7].map(d => `<option value="${d}" ${d === eventGanttDaysPeriod ? 'selected' : ''}>${d}</option>`).join('')}
+                        </select>
+                    ` : `
+                        <span>To:</span>
+                        <input type="date" id="selEventGanttEndDate" value="${eventGanttFixedEndDate}" style="padding: 2px 4px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 4px; background: #fff;" onchange="handleEventGanttDateRangeChange('end', this.value)">
+                    `}
                 </div>
 
                 <label style="display: flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; color: #b91c1c; cursor: pointer;">
@@ -561,17 +593,28 @@ function handleEventGanttHorizonChange(year) {
 }
 
 function handleEventGanttDateRangeChange(type, val) {
-    if (type === 'start') eventGanttFixedStartDate = val;
-    else eventGanttFixedEndDate = val;
+    if (type === 'start') {
+        eventGanttFixedStartDate = val;
+    } else {
+        eventGanttFixedEndDate = val;
+    }
     refreshEventGanttChart();
 }
 
+function handleEventGanttDaysChange(val) {
+    eventGanttDaysPeriod = parseInt(val, 10);
+    refreshEventGanttChart();
+}
+
+/**
+ * 固定步長刻度生成器 (Hourly 支援 00:00 顯示 DD/MM 00，其餘顯示 HH)
+ */
 function generateEventFixedMarks(viewStart, viewEnd, unit) {
     const marks = [];
     const totalDuration = viewEnd - viewStart;
 
     let pixelPerStep = 90;
-    if (unit === 'HOURLY') pixelPerStep = 35;
+    if (unit === 'HOURLY') pixelPerStep = 40;
     else if (unit === 'DAILY') pixelPerStep = 45;
     else if (unit === 'WEEK') pixelPerStep = 65;
     else if (unit === 'MONTH') pixelPerStep = 85;
@@ -603,7 +646,15 @@ function generateEventFixedMarks(viewStart, viewEnd, unit) {
 
             if (unit === 'HOURLY') {
                 const hh = String(cur.getHours()).padStart(2, '0');
-                label = `${hh}:00`;
+                if (cur.getHours() === 0) {
+                    // ★ 00:00 顯示為 DD/MM 00 (日/月 00)
+                    const dd = String(cur.getDate()).padStart(2, '0');
+                    const mm = String(cur.getMonth() + 1).padStart(2, '0');
+                    label = `${dd}/${mm} 00`;
+                } else {
+                    // ★ 01:00 ~ 23:00 顯示為純兩位數 HH
+                    label = `${hh}`;
+                }
             } else if (unit === 'DAILY') {
                 const mm = String(cur.getMonth() + 1).padStart(2, '0');
                 const dd = String(cur.getDate()).padStart(2, '0');

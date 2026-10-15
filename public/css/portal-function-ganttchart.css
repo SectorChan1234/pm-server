@@ -112,3 +112,17 @@
     z-index: 5;
     pointer-events: none;
 }
+
+/* ==========================================================================
+   Hourly Mode - Day Start Highlight (DD/MM 00)
+   ========================================================================== */
+.gantt-time-mark.is-day-start {
+    background: #fef08a !important;        /* 柔和黃色背景 */
+    color: #b91c1c !important;             /* 粗體鮮紅字體 */
+    font-weight: 700 !important;
+    padding: 1px 5px !important;
+    border-radius: 3px !important;
+    border: 1px solid #fde047 !important;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08) !important;
+    z-index: 6 !important;
+}

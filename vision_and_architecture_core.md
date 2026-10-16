@@ -16,7 +16,18 @@ ProjectBook 定位為一套「輕量級、高自主、具備長期自持力（Se
 - 專門解決前任同仁離職或調職、後任同仁接手專案時的資訊斷層問題。
 - 接任同仁登入後，可完整調閱前任同仁「以往處理過」以及「正在進行中」的所有專案全貌、歷史階段、會議交付物、決策背景與備忘紀錄，使組織數位資產與公務記憶永續傳承。
 
-### 2.3 嚴密且透明的軌跡存證與台帳體系 (Tamper-Evident Ledger & Traceability)
+### 2.3 跨模組透明留言與詮釋系統 (Cross-Module Public Annotation & Discussion)
+- **T08_MultiComment 與 T09_MessageRead 核心定位**：
+  - 提供一套類似 **Microsoft Word「在特定位置插入批註/詮釋（Annotation / Comment）」** 的跨模組討論系統。
+  - 能精確錨定掛載於專案層級的不同實體（Project、Phase、Event、Mission 或父子留言對話串）。
+- **協作提問與通知關注**：
+  - 留言具備**公開透明**特性，同仁間可針對特定或多個使用者（`MC_to_Someone`）提出提問、標記待注意（Attention）或請求回覆。
+  - 搭配 `T09_MessageRead` 實現細緻的「已讀/未讀（MessageRead）」狀態追蹤。
+- **免審計台帳污染律 (Ledger Exclusion Rule)**：
+  - `T08_MultiComment` 與 `T09_MessageRead` 的增刪查改操作，**一律嚴禁寫入 `ProjectRemarkLedger`**。
+  - 保持溝通與註解的輕量即時，避免龐雜的日常討論洗版污染嚴肅的專案公務審計台帳。
+
+### 2.4 嚴密且透明的軌跡存證與台帳體系 (Tamper-Evident Ledger & Traceability)
 1. **異動前主動預告機制 (Pre-Action Ledger Notice)**：
    - 凡任何系統操作行為（Action）即將向 `ProjectRemarkLedger` 寫入審計存證紀錄時，系統**必須主動預先通知使用者**，嚴禁靜默寫入。
 2. **使用者自主備忘存證 (User-Initiated Ledger Entry)**：
@@ -25,7 +36,7 @@ ProjectBook 定位為一套「輕量級、高自主、具備長期自持力（Se
    - `T00_Ref` 字典表凡滿足 `FK_T00_PK_T05 IS NOT NULL` 的記錄，**一律嚴格定義為「僅影響該使用者自身介面效果」的個人偏好設定**。
    - 此類個人介面偏好變更，嚴禁寫入全域或專案級的 `ProjectRemarkLedger`，避免污染公務審計台帳。
 
-### 2.4 零信任權限與承辦商隔離 (Zero-Trust Access Control)
+### 2.5 零信任權限與承辦商隔離 (Zero-Trust Access Control)
 - 全域同仁（Global Staff, `CUSTOM = 0`）依專案角色表 `T06_ProjectRoles` 的 `PR_Right` 動態授予權限。
 - 外部承辦商（Contractor, `CUSTOM = PK_T01 > 0`）嚴格實體隔離在單一專案內，保障公務機密安全。
 

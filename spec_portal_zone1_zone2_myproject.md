@@ -90,4 +90,4 @@
    - 篩選工具列依然保持可用，可在此資料夾範圍內進行二次即時檢索。
    - **專案視圖跳轉入口 (Project View Navigation / Hash Routing)**：
    - 表格中提供直接進入該專案視圖的操作途徑（例如點擊 `PJ_Code` / `PJ_Name` 超連結或專屬 `Open Project` 動作按鈕）。
-   - **跳轉路由標準**：透過 URL Hash 更新為 `.../portal.html#pj=XXX`（其中 `XXX` 為對應之 `PJ_Code`），連帶驅動區域 4 下拉選單同步選中該專案，並觸發全局專案視圖加載。
+   - **跳轉路由標準**：透過 URL Hash 更新為 `.../portal.html#pj=XXX`（其中 `XXX` 為對應之 `PK_T01`），連帶驅動區域 4 下拉選單同步選中該專案，並觸發全局專案視圖加載。

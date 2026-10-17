@@ -70,7 +70,7 @@
    - **格式**：`.../portal.html#pj=XXX&view=event-detail`
    - **語意**：切換至該專案工作台，並在中央視圖載入該專案旗下的**所有 Event 清單總覽**。
 3. **單一事件與任務互動專用路由 (Target Single-Event & Mission Interactive Scope)**：
-   - **格式**：`.../portal.html#pj=XXX&event=YYY`（其中 `XXX` 為 `PJ_Code`，`YYY` 為對應之 `EV_Code` 或 `PK_T03`）
+   - **格式**：`.../portal.html#pj=XXX&event=YYY`（其中 `XXX` 為 `PK_T01`，`YYY` 為對應之 或 `PK_T03`
    - **語意與行為**：
      - 在月曆視圖中**雙擊**事件卡片，或點擊預覽抽屜內的 `Open Event & Missions` 按鈕觸發。
      - 系統自動同步全域專案上下文至 `PJ_Code = XXX`（聯動區域 4 下拉選單）。

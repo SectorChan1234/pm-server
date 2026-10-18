@@ -47,3 +47,46 @@ const StandardViewInterface = {
     // 清空 container 節點與釋放內部參照
   }
 };
+---
+
+## 4. View Router 路由解析與多槽位分發引擎規範
+
+### 4.1 URL Hash 結構與命名空間解耦 (Hash Schema)
+URL Hash 劃分為主工作區與側邊欄兩大解耦命名空間：
+1. **主視圖參數 (Zone 11 Slot)**：
+   - 專案根：`#pj=PK_T01`（預設為該專案的 Project Detail）
+   - 專案特定視圖：`#pj=PK_T01&view=project-phase` / `member-list` / `event-detail` / `mission-workspace`
+   - 單一深度實體：`#pj=PK_T01&event=PK_T03`（事件深層工作台）或 `#pj=PK_T01&ms=PK_T04`（任務深度工作台）
+   - 跨專案視圖 (Zone 2)：`#view=my-project` / `my-event` / `my-mission`
+   - 個人偏好設定 (Zone 8)：`#view=setting-folder` / `setting-shortcut` / `setting-preferences`
+   - 首頁：空 Hash 或無參數（導向 System Overview）
+2. **側邊輔助參數 (Zone 9 & Zone 10 Slots)**：
+   - 以前綴 `side` 區隔：`&side=notifications`（Zone 9 列表）、`&side=notifications&msgId=108`（Zone 10 聚焦詳情與回覆）。
+   - 關閉側邊時自 Hash 移除 `side` 相關參數，Zone 11 視圖與資料完全無損保留。
+
+### 4.2 分發管線流程 (Dispatch Pipeline)
+當 `hashchange` 觸發時，全域路由器執行標準五階段流程：
+1. **Hash 解析**：將 Hash 字串轉為標準鍵值物件（`URLSearchParams`）。
+2. **Zone 11 差異比對 (Diffing Check)**：
+   - 比對主視圖核心參數是否發生實質變更。
+   - 若主參數無變化（僅 `side` 參數變動），則**保留 Zone 11，不重複執行 unmount/mount**。
+   - 若主參數變更，強制對舊視圖執行 `unmount(container)`，執行 `container.innerHTML = ''` 與 `scrollTop = 0`，再調用新模組之 `mount()`。
+3. **Zone 9 & 10 側邊調度**：
+   - 若無 `side` 參數：對現存側邊視圖調用 `unmount()`，釋放資源後隱藏容器，將寬度 100% 歸還 Zone 11。
+   - 若存在 `side` 參數：觸發 Flex 壓縮並掛載對應模組。
+4. **全域被動同步 (Passive State Sync)**：
+   - 若 Hash 包含 `pj=PK_T01`，自動同步 Zone 4 專案下拉選單的選取值。
+   - 同步更新左側手風琴（Zone 5~8）當前作用中項目（Active Highlighting）。
+5. **防併發競爭防禦 (Race Condition Protection)**：
+   - 路由器內部維護 `routeSequence` 遞增序號。非同步請求回傳時比對序號，若序號過期則直接捨棄，防範舊資料覆寫新畫面。
+
+---
+
+## 5. 容器滾動與審計隔離規範
+
+### 5.1 獨立滾動容器 (Independent Scroll Container)
+- Zone 11 具備獨立的 `overflow-y: auto; overflow-x: hidden;`。
+- 切換新視圖時，強制重置滾動位置（`container.scrollTop = 0`）。
+
+### 5.2 審計與偏好隔離規範 (Auditing Boundary)
+- 路由解析、視圖分發、掛載、銷毀、側邊欄展開與縮放比例切換，純屬客戶端暫態與個人操作，**一律不寫入 `ProjectRemarkLedger`**。

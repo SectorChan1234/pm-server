@@ -47,7 +47,9 @@ const StandardViewInterface = {
     // 清空 container 節點與釋放內部參照
   }
 };
+
 ---
+
 ## 4. View Router 路由解析與多槽位分發引擎規範
 
 ### 4.1 URL Hash 結構與命名空間解耦 (Hash Schema)

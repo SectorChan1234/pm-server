@@ -1,7 +1,7 @@
 # Specification: Portal Workspace - Zone 11 (Main Workspace Canvas) & Universal View Router Engine
 
 ## 1. 模組定位與設計哲學
-本規格書定義 `portal.html` 中央主工作區 **Zone 11（Main Workspace Canvas）** 的整體容器特性、版面彈性、生命週期防禦及視圖渲染規範。
+本規格書定義 `portal.html` 中央主工作區 **Zone 11（Main Workspace Canvas）** 的容器特性、版面彈性、生命週期防禦及全域 **View Router（視圖路由器）** 的解析與分發引擎規範。
 - **定位**：全域主要業務畫面（專案概覽、甘特圖、任務工作台、個人偏好等）的主宿主畫布（Primary Host Canvas）。
 - **非結構化頂部哲學 (No Enforced Universal Header)**：
   - Zone 11 內部**不強加一致的通用頂部結構（如強制麵包屑列或全域固定抬頭）**。
@@ -33,7 +33,7 @@ Zone 11（主畫布）、Zone 9（右側輔助主容器）與 Zone 10（右側�
 
 ```javascript
 const StandardViewInterface = {
-  // 1. 掛載與渲染 (注入 routeSeq 防範非同步覆寫競爭)
+  // 1. 掛載與渲染
   mount: async function(container, params, routeSeq) {
     // 渲染 DOM 內容
     // 初始化內部定時器、事件監聽器與非同步請求 (帶有 AbortController 及 routeSeq 檢查)
@@ -47,6 +47,7 @@ const StandardViewInterface = {
     // 清空 container 節點與釋放內部參照
   }
 };
+```
 
 ---
 

@@ -1,4 +1,4 @@
-# Specification: Portal Workspace - Zone 11 (Main Workspace Canvas) & Dynamic View Router Architecture
+# Specification: Portal Workspace - Zone 11 (Main Workspace Canvas) & Universal View Router Engine
 
 ## 1. 模組定位與設計哲學
 本規格書定義 `portal.html` 中央主工作區 **Zone 11（Main Workspace Canvas）** 的整體容器特性、版面彈性、生命週期防禦及視圖渲染規範。
@@ -24,19 +24,19 @@
 
 ---
 
-## 3. 全域通用視圖分發與生命週期架構 (Universal View Router & Host Engine)
+## 3. 全域通用視圖分發與生命週期架構 (Universal Dynamic Host Slot Engine)
 
-為了保持系統無框架（Vanilla JS）原生架構的極致純粹性與穩定性，**Zone 11（主畫布）、Zone 9（右側輔助主容器）與 Zone 10（右側次級操作容器）全部統一為「通用隨選宿主插槽（Universal Dynamic Host Slot）」**，共享完全一致的生命週期合約與路由器治理模式。
+Zone 11（主畫布）、Zone 9（右側輔助主容器）與 Zone 10（右側次級操作容器）全部統一為**「通用隨選宿主插槽（Universal Dynamic Host Slot）」**，共享完全一致的生命週期合約與路由器治理模式。
 
 ### 3.1 標準視圖生命週期合約 (Standard View Lifecycle Contract)
 凡是掛載至 Zone 11、Zone 9 或 Zone 10 的業務視圖模組，必須嚴格實現以下標準介面：
 
 ```javascript
 const StandardViewInterface = {
-  // 1. 掛載與渲染
-  mount: async function(container, params) {
+  // 1. 掛載與渲染 (注入 routeSeq 防範非同步覆寫競爭)
+  mount: async function(container, params, routeSeq) {
     // 渲染 DOM 內容
-    // 初始化內部定時器、事件監聽器與非同步請求 (AbortController)
+    // 初始化內部定時器、事件監聽器與非同步請求 (帶有 AbortController 及 routeSeq 檢查)
   },
 
   // 2. 強制銷毀與清理 (Strict Teardown)
@@ -47,7 +47,6 @@ const StandardViewInterface = {
     // 清空 container 節點與釋放內部參照
   }
 };
----
 
 ## 4. View Router 路由解析與多槽位分發引擎規範
 

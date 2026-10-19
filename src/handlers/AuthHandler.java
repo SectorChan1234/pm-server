@@ -25,10 +25,10 @@ import java.util.regex.Pattern;
  *
  * 職責與邊界：
  * 1. 處理 Portal 登入 (/api/auth/login)、後台管理員登入 (/api/auth/admin-login) 與登出 (/api/auth/logout)。
- * 2. 實作內部同仁與外判人員 (FK_T05_PK_T01_CUSTOM) 登入分支狀態機，支援多專案外判身分之次級 PJ_Code 動態驗證。
- * 3. 實作登入後無感平滑升級：自動將資料庫內舊版無鹽 SHA-256 升級為加鹽雜湊 (saltHex:hashHex)。
+ * 2. 實作內部同仁與外判人員 (FK_T05_PK_T01_CUSTOM) 登入狀態機，支援外判身分之次級 PJ_Code 動態驗證。
+ * 3. 嚴格執行 Salted SHA-256 身分校驗，徹底移除舊版無鹽雜湊過渡相容與無感升級代碼。
  * 4. 支援當前使用者狀態獲取 (/api/auth/me) 與使用者自主變更密碼 (/api/auth/change-password)。
- * 5. 全面使用嚴格大小寫雙引號 (\"T05_Staff\", \"T01_Projects\") 對齊 H2 Schema 定義。
+ * 5. 全面使用嚴格轉義雙引號 (\"T05_Staff\", \"T01_Projects\") 對齊 H2 Schema 定義。
  */
 public class AuthHandler implements HttpHandler {
 
@@ -157,10 +157,6 @@ public class AuthHandler implements HttpHandler {
             return;
         }
 
-        if (Security.needsRehash(matchedStaff.passwordHash)) {
-            upgradePasswordHash(matchedStaff.pkT05, password);
-        }
-
         UserSession session = new UserSession(
                 matchedStaff.pkT05,
                 matchedStaff.email,
@@ -204,10 +200,6 @@ public class AuthHandler implements HttpHandler {
             return;
         }
 
-        if (Security.needsRehash(adminCandidate.passwordHash)) {
-            upgradePasswordHash(adminCandidate.pkT05, password);
-        }
-
         UserSession session = new UserSession(
                 adminCandidate.pkT05,
                 adminCandidate.email,
@@ -234,11 +226,14 @@ public class AuthHandler implements HttpHandler {
 
         String json = "{"
                 + "\"success\":true,"
+                + "\"status\":\"SUCCESS\","
                 + "\"user\":{"
                 + "\"pkT05\":" + session.pkT05 + ","
+                + "\"pk_t05\":" + session.pkT05 + ","
                 + "\"email\":\"" + JsonUtil.escape(session.email) + "\","
                 + "\"name\":\"" + JsonUtil.escape(session.name) + "\","
                 + "\"stRight\":\"" + JsonUtil.escape(session.stRight) + "\","
+                + "\"st_right\":\"" + JsonUtil.escape(session.stRight) + "\","
                 + "\"fkT05PkT01Custom\":" + session.fkT05PkT01Custom
                 + "}"
                 + "}";
@@ -253,11 +248,23 @@ public class AuthHandler implements HttpHandler {
         }
 
         String body = readBody(exchange);
+        // 雙向相容駝峰與底線命名 (portal.js 使用 old_password / new_password)
         String oldPassword = extractJsonField(body, "oldPassword");
+        if (oldPassword.isEmpty()) {
+            oldPassword = extractJsonField(body, "old_password");
+        }
         String newPassword = extractJsonField(body, "newPassword");
+        if (newPassword.isEmpty()) {
+            newPassword = extractJsonField(body, "new_password");
+        }
 
         if (oldPassword.isEmpty() || newPassword.isEmpty()) {
             sendError(exchange, 400, "Old password and new password are required");
+            return;
+        }
+
+        if (newPassword.length() < 6) {
+            sendError(exchange, 400, "New password must be at least 6 characters long");
             return;
         }
 
@@ -348,29 +355,18 @@ public class AuthHandler implements HttpHandler {
         return 0L;
     }
 
-    private void upgradePasswordHash(long pkT05, String rawPassword) {
-        String newSaltedHash = Security.hashPassword(rawPassword);
-        String sql = "UPDATE \"T05_Staff\" SET \"ST_password_hash\" = ? WHERE PK_T05 = ?";
-        try (Connection conn = DB.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, newSaltedHash);
-            ps.setLong(2, pkT05);
-            ps.executeUpdate();
-            System.out.println("[Security Notice] Staff PK_T05=" + pkT05 + " password hash upgraded to Salted SHA-256.");
-        } catch (SQLException e) {
-            System.err.println("[Security Warning] Failed to upgrade password hash for PK_T05=" + pkT05 + ": " + e.getMessage());
-        }
-    }
-
     private void sendLoginSuccess(HttpExchange exchange, String token, StaffCandidate staff) throws IOException {
         String json = "{"
                 + "\"success\":true,"
+                + "\"status\":\"SUCCESS\","
                 + "\"token\":\"" + JsonUtil.escape(token) + "\","
                 + "\"user\":{"
                 + "\"pkT05\":" + staff.pkT05 + ","
+                + "\"pk_t05\":" + staff.pkT05 + ","
                 + "\"email\":\"" + JsonUtil.escape(staff.email) + "\","
                 + "\"name\":\"" + JsonUtil.escape(staff.name) + "\","
                 + "\"stRight\":\"" + JsonUtil.escape(staff.stRight) + "\","
+                + "\"st_right\":\"" + JsonUtil.escape(staff.stRight) + "\","
                 + "\"fkT05PkT01Custom\":" + staff.fkT05PkT01Custom
                 + "}"
                 + "}";
@@ -380,12 +376,15 @@ public class AuthHandler implements HttpHandler {
     private void sendAdminLoginSuccess(HttpExchange exchange, String token, StaffCandidate admin) throws IOException {
         String json = "{"
                 + "\"success\":true,"
+                + "\"status\":\"SUCCESS\","
                 + "\"token\":\"" + JsonUtil.escape(token) + "\","
                 + "\"admin\":{"
                 + "\"pkT05\":" + admin.pkT05 + ","
+                + "\"pk_t05\":" + admin.pkT05 + ","
                 + "\"email\":\"" + JsonUtil.escape(admin.email) + "\","
                 + "\"name\":\"" + JsonUtil.escape(admin.name) + "\","
-                + "\"stRight\":\"" + JsonUtil.escape(admin.stRight) + "\""
+                + "\"stRight\":\"" + JsonUtil.escape(admin.stRight) + "\","
+                + "\"st_right\":\"" + JsonUtil.escape(admin.stRight) + "\""
                 + "}"
                 + "}";
         JsonUtil.sendJson(exchange, 200, json);
@@ -394,6 +393,7 @@ public class AuthHandler implements HttpHandler {
     private void sendRequireProjectCode(HttpExchange exchange) throws IOException {
         String json = "{"
                 + "\"success\":false,"
+                + "\"status\":\"FAILED\","
                 + "\"requireProjectCode\":true,"
                 + "\"code\":\"REQUIRE_PROJECT_CODE\","
                 + "\"message\":\"Project Code is required for contractor profile\""
@@ -404,6 +404,7 @@ public class AuthHandler implements HttpHandler {
     private void sendSuccessMessage(HttpExchange exchange, String message) throws IOException {
         String json = "{"
                 + "\"success\":true,"
+                + "\"status\":\"SUCCESS\","
                 + "\"message\":\"" + JsonUtil.escape(message != null ? message : "") + "\""
                 + "}";
         JsonUtil.sendJson(exchange, 200, json);
@@ -412,6 +413,7 @@ public class AuthHandler implements HttpHandler {
     private void sendError(HttpExchange exchange, int statusCode, String message) throws IOException {
         String json = "{"
                 + "\"success\":false,"
+                + "\"status\":\"FAILED\","
                 + "\"message\":\"" + JsonUtil.escape(message != null ? message : "") + "\""
                 + "}";
         JsonUtil.sendJson(exchange, statusCode, json);

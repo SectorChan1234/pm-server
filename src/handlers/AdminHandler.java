@@ -24,8 +24,8 @@ import java.util.regex.Pattern;
  * 職責與邊界：
  * 1. 嚴格執行零信任 ADMIN 身分鑑權，非管理員請求一律攔截並阻斷。
  * 2. 人員生命週期管理：列出同仁 (/api/admin/staff/list)、建立同仁 (/api/admin/staff/create)、啟用/停用帳號 (/api/admin/staff/toggle-active)。
- * 3. 密碼治理升級：重設人員密碼 (/api/admin/staff/reset-password) 全面改用 Salted Hash，並踢除已登入 Session。
- * 4. 暴露同仁密碼安全性狀態 (isSalted)，支援管理介面標註舊版無鹽 SHA-256 帳號。
+ * 3. 嚴格實作「全域身分排他律」：內部同仁 (CUSTOM=0) 與專案外判 (CUSTOM>0) Email 嚴格互斥。
+ * 4. 密碼治理升級：重設人員密碼全面使用全新 Salted SHA-256，並即時強制剔除已登入 Session。
  * 5. 全面使用嚴格轉義雙引號 (\"T05_Staff\", \"T01_Projects\") 對齊 H2 Schema 定義。
  */
 public class AdminHandler implements HttpHandler {
@@ -109,7 +109,7 @@ public class AdminHandler implements HttpHandler {
                      "ORDER BY s.PK_T05 ASC";
 
         StringBuilder json = new StringBuilder();
-        json.append("{\"success\":true,\"staffList\":[");
+        json.append("{\"success\":true,\"status\":\"SUCCESS\",\"staffList\":[");
 
         try (Connection conn = DB.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql);
@@ -132,13 +132,16 @@ public class AdminHandler implements HttpHandler {
                 String pjCode = rs.getString("PJ_Code");
                 String pjName = rs.getString("PJ_Name");
 
-                boolean isSalted = !Security.needsRehash(passwordHash);
+                // 對齊 Security.isSaltedFormat()
+                boolean isSalted = Security.isSaltedFormat(passwordHash);
 
                 json.append("{")
                     .append("\"pkT05\":").append(pkT05).append(",")
+                    .append("\"pk_t05\":").append(pkT05).append(",")
                     .append("\"email\":\"").append(JsonUtil.escape(email != null ? email : "")).append("\",")
                     .append("\"name\":\"").append(JsonUtil.escape(name != null ? name : "")).append("\",")
                     .append("\"stRight\":\"").append(JsonUtil.escape(right != null ? right : "USER")).append("\",")
+                    .append("\"st_right\":\"").append(JsonUtil.escape(right != null ? right : "USER")).append("\",")
                     .append("\"isActive\":").append(isActive).append(",")
                     .append("\"customProjectId\":").append(customProjectId).append(",")
                     .append("\"customProjectCode\":\"").append(JsonUtil.escape(pjCode != null ? pjCode : "")).append("\",")
@@ -155,7 +158,7 @@ public class AdminHandler implements HttpHandler {
     }
 
     /**
-     * [職責] 建立新同仁帳號，強制以 Salted SHA-256 格式儲存密碼，並檢驗身分排他約束
+     * [職責] 建立新同仁帳號，強制以 Salted SHA-256 儲存，並執行《登入模組規範》第 3.2 節全域身分絕對排他律
      */
     private void handleStaffCreate(HttpExchange exchange) throws IOException {
         String body = readBody(exchange);
@@ -164,7 +167,13 @@ public class AdminHandler implements HttpHandler {
         String name = extractJsonField(body, "name").trim();
         String password = extractJsonField(body, "password");
         String stRight = extractJsonField(body, "stRight").trim().toUpperCase();
+        if (stRight.isEmpty()) {
+            stRight = extractJsonField(body, "st_right").trim().toUpperCase();
+        }
         String customProjStr = extractJsonField(body, "customProjectId").trim();
+        if (customProjStr.isEmpty()) {
+            customProjStr = extractJsonField(body, "custom_project_id").trim();
+        }
 
         long customProjectId = 0L;
         if (!customProjStr.isEmpty()) {
@@ -175,6 +184,11 @@ public class AdminHandler implements HttpHandler {
 
         if (email.isEmpty() || name.isEmpty() || password.isEmpty()) {
             sendError(exchange, 400, "Email, Name, and Password are required fields");
+            return;
+        }
+
+        if (password.length() < 6) {
+            sendError(exchange, 400, "Password must be at least 6 characters long");
             return;
         }
 
@@ -196,7 +210,19 @@ public class AdminHandler implements HttpHandler {
                     }
                 }
 
-                // 檢查同一專案下是否已存在相同 Email 之人員
+                // 全域排他律 1：內部同仁 (CUSTOM = 0) 不得被登記為外判身分
+                String checkInternalSql = "SELECT COUNT(*) FROM \"T05_Staff\" WHERE LOWER(TRIM(\"ST_Email\")) = ? AND COALESCE(FK_T05_PK_T01_CUSTOM, 0) = 0";
+                try (PreparedStatement ps = conn.prepareStatement(checkInternalSql)) {
+                    ps.setString(1, email);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        if (rs.next() && rs.getInt(1) > 0) {
+                            sendError(exchange, 400, "Exclusivity Violation: This email is already registered as an Internal Departmental Officer and cannot be added as a contractor");
+                            return;
+                        }
+                    }
+                }
+
+                // 全域排他律 2：同一專案下同一 Email 僅限一筆
                 String checkDupSql = "SELECT COUNT(*) FROM \"T05_Staff\" WHERE LOWER(TRIM(\"ST_Email\")) = ? AND FK_T05_PK_T01_CUSTOM = ?";
                 try (PreparedStatement ps = conn.prepareStatement(checkDupSql)) {
                     ps.setString(1, email);
@@ -209,13 +235,18 @@ public class AdminHandler implements HttpHandler {
                     }
                 }
             } else {
-                // 內部全域同仁：全域僅能有一筆 (CUSTOM = 0)
-                String checkDupSql = "SELECT COUNT(*) FROM \"T05_Staff\" WHERE LOWER(TRIM(\"ST_Email\")) = ? AND COALESCE(FK_T05_PK_T01_CUSTOM, 0) = 0";
-                try (PreparedStatement ps = conn.prepareStatement(checkDupSql)) {
+                // 全域排他律 3：內部同仁 (CUSTOM = 0) 在全資料庫必須唯一，且不能與現有任何外判人員重疊
+                String checkAnySql = "SELECT COALESCE(FK_T05_PK_T01_CUSTOM, 0) AS CUSTOM_ID FROM \"T05_Staff\" WHERE LOWER(TRIM(\"ST_Email\")) = ? LIMIT 1";
+                try (PreparedStatement ps = conn.prepareStatement(checkAnySql)) {
                     ps.setString(1, email);
                     try (ResultSet rs = ps.executeQuery()) {
-                        if (rs.next() && rs.getInt(1) > 0) {
-                            sendError(exchange, 400, "An internal staff account with this email already exists");
+                        if (rs.next()) {
+                            long existingCustomId = rs.getLong("CUSTOM_ID");
+                            if (existingCustomId == 0) {
+                                sendError(exchange, 400, "An internal staff account with this email already exists");
+                            } else {
+                                sendError(exchange, 400, "Exclusivity Violation: This email is already associated with an external contractor profile and cannot be registered as an internal officer");
+                            }
                             return;
                         }
                     }
@@ -246,8 +277,10 @@ public class AdminHandler implements HttpHandler {
 
             String json = "{"
                     + "\"success\":true,"
+                    + "\"status\":\"SUCCESS\","
                     + "\"message\":\"Staff account created successfully with Salted SHA-256\","
-                    + "\"pkT05\":" + generatedPk
+                    + "\"pkT05\":" + generatedPk + ","
+                    + "\"pk_t05\":" + generatedPk
                     + "}";
             JsonUtil.sendJson(exchange, 200, json);
 
@@ -257,12 +290,15 @@ public class AdminHandler implements HttpHandler {
     }
 
     /**
-     * [職責] 管理員重設同仁密碼，全面以 Salted SHA-256 儲存並強制剔除現有 Session
+     * [職責] 管理員重設同仁密碼，強制以 Salted SHA-256 儲存並剔除現有 Session
      */
     private void handleResetPassword(HttpExchange exchange) throws IOException {
         String body = readBody(exchange);
 
         String pkStr = extractJsonField(body, "pkT05").trim();
+        if (pkStr.isEmpty()) {
+            pkStr = extractJsonField(body, "pk_t05").trim();
+        }
         long pkT05 = 0L;
         if (!pkStr.isEmpty()) {
             try {
@@ -271,9 +307,17 @@ public class AdminHandler implements HttpHandler {
         }
 
         String newPassword = extractJsonField(body, "newPassword");
+        if (newPassword.isEmpty()) {
+            newPassword = extractJsonField(body, "new_password");
+        }
 
         if (pkT05 <= 0 || newPassword.isEmpty()) {
-            sendError(exchange, 400, "Valid Staff ID (pkT05) and newPassword are required");
+            sendError(exchange, 400, "Valid Staff ID and newPassword are required");
+            return;
+        }
+
+        if (newPassword.length() < 6) {
+            sendError(exchange, 400, "New password must be at least 6 characters long");
             return;
         }
 
@@ -306,6 +350,9 @@ public class AdminHandler implements HttpHandler {
         String body = readBody(exchange);
 
         String pkStr = extractJsonField(body, "pkT05").trim();
+        if (pkStr.isEmpty()) {
+            pkStr = extractJsonField(body, "pk_t05").trim();
+        }
         long pkT05 = 0L;
         if (!pkStr.isEmpty()) {
             try {
@@ -314,8 +361,12 @@ public class AdminHandler implements HttpHandler {
         }
 
         String activeStr = extractJsonField(body, "isActive").trim();
+        if (activeStr.isEmpty()) {
+            activeStr = extractJsonField(body, "is_active").trim();
+        }
+
         if (pkT05 <= 0 || activeStr.isEmpty()) {
-            sendError(exchange, 400, "Valid Staff ID (pkT05) and isActive status are required");
+            sendError(exchange, 400, "Valid Staff ID and isActive status are required");
             return;
         }
 
@@ -348,9 +399,9 @@ public class AdminHandler implements HttpHandler {
      * [職責] 提供供外判人員綁定之專案選項目錄
      */
     private void handleProjectOptions(HttpExchange exchange) throws IOException {
-        String sql = "SELECT PK_T01, \"PJ_Code\", \"PJ_Name\" FROM \"T01_Projects\" ORDER BY \"PJ_Code\" ASC";
+        String sql = "SELECT PK_T01, \"PJ_Code\", \"PJ_Name\" FROM \"T01_Projects\" WHERE \"PJ_ignore_delete\" = FALSE ORDER BY \"PJ_Code\" ASC";
         StringBuilder json = new StringBuilder();
-        json.append("{\"success\":true,\"projects\":[");
+        json.append("{\"success\":true,\"status\":\"SUCCESS\",\"projects\":[");
 
         try (Connection conn = DB.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql);
@@ -369,8 +420,11 @@ public class AdminHandler implements HttpHandler {
 
                 json.append("{")
                     .append("\"pkT01\":").append(pkT01).append(",")
+                    .append("\"pk_t01\":").append(pkT01).append(",")
                     .append("\"pjCode\":\"").append(JsonUtil.escape(code != null ? code : "")).append("\",")
-                    .append("\"pjName\":\"").append(JsonUtil.escape(name != null ? name : "")).append("\"")
+                    .append("\"pj_code\":\"").append(JsonUtil.escape(code != null ? code : "")).append("\",")
+                    .append("\"pjName\":\"").append(JsonUtil.escape(name != null ? name : "")).append("\",")
+                    .append("\"pj_name\":\"").append(JsonUtil.escape(name != null ? name : "")).append("\"")
                     .append("}");
             }
         } catch (SQLException e) {
@@ -384,6 +438,7 @@ public class AdminHandler implements HttpHandler {
     private void sendSuccessMessage(HttpExchange exchange, String message) throws IOException {
         String json = "{"
                 + "\"success\":true,"
+                + "\"status\":\"SUCCESS\","
                 + "\"message\":\"" + JsonUtil.escape(message != null ? message : "") + "\""
                 + "}";
         JsonUtil.sendJson(exchange, 200, json);
@@ -392,6 +447,7 @@ public class AdminHandler implements HttpHandler {
     private void sendError(HttpExchange exchange, int statusCode, String message) throws IOException {
         String json = "{"
                 + "\"success\":false,"
+                + "\"status\":\"FAILED\","
                 + "\"message\":\"" + JsonUtil.escape(message != null ? message : "") + "\""
                 + "}";
         JsonUtil.sendJson(exchange, statusCode, json);

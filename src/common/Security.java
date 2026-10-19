@@ -14,9 +14,9 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * 職責與邊界：
  * 1. 管理全系統記憶體內之 Bearer Token 會話快取 (TOKEN_CACHE) 與使用者身分上下文 (UserSession)。
- * 2. 提供加密雜湊服務：支援 16-byte 隨機加鹽雜湊 (Salted SHA-256, 格式為 "saltHex:hashHex")。
- * 3. 提供雙軌相容驗證：同時相容舊版無鹽純 SHA-256 雜湊與新版加鹽雜湊，並透過 MessageDigest.isEqual 執行常數時間比對以防禦計時攻擊 (Timing Attack)。
- * 4. 提供完整向下相容之 authenticate 多載方法 (同時支援傳入 String authHeader 或 HttpExchange)。
+ * 2. 提供強制加鹽雜湊服務：採用 16-byte (128-bit) 隨機鹽值 + SHA-256，格式嚴格規定為 "saltHex:hashHex"。
+ * 3. 已徹底移除舊版無鹽 SHA-256 相容邏輯，任何非標準加鹽格式之密碼雜湊一律拒絕驗證。
+ * 4. 透過 MessageDigest.isEqual 執行常數時間比對，防禦計時攻擊 (Timing Attack)。
  */
 public class Security {
 
@@ -59,21 +59,10 @@ public class Security {
     }
 
     /**
-     * [職責] 基礎無鹽 SHA-256 雜湊計算（保留供向下相容及舊版密碼比對使用）
-     */
-    public static String sha256(String input) {
-        try {
-            String safeInput = (input == null) ? "" : input;
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
-            byte[] hashBytes = md.digest(safeInput.getBytes(StandardCharsets.UTF_8));
-            return bytesToHex(hashBytes);
-        } catch (Exception e) {
-            throw new RuntimeException("SHA-256 calculation failed", e);
-        }
-    }
-
-    /**
      * [職責] 產生全新加鹽密碼雜湊 (Salted Password Hash)
+     * [Input Contract] rawPassword: 使用者明文密碼
+     * [Output Contract] 格式為 "saltHex(32字元):hashHex(64字元)"
+     * [Called By] AuthHandler.handleChangePassword, AdminHandler.handleStaffCreate, AdminHandler.handleResetPassword
      */
     public static String hashPassword(String rawPassword) {
         if (rawPassword == null) {
@@ -88,6 +77,9 @@ public class Security {
 
     /**
      * [職責] 以指定之十六進位鹽值 (saltHex) 與明文密碼計算 SHA-256 雜湊
+     * [Input Contract] saltHex: 32字元十六進位鹽值, rawPassword: 明文密碼
+     * [Output Contract] 64字元十六進位 SHA-256 雜湊字串
+     * [Called By] Security.hashPassword, Security.verifyPassword
      */
     public static String hashWithSalt(String saltHex, String rawPassword) {
         try {
@@ -103,48 +95,43 @@ public class Security {
     }
 
     /**
-     * [職責] 雙軌相容密碼驗證器（支援「新版 saltHex:hashHex」與「舊版純 SHA-256 Hex」）
+     * [職責] 嚴格加鹽密碼驗證器（僅接受標準 "saltHex:hashHex" 格式，已移除舊版無鹽相容分支）
+     * [Input Contract] rawPassword: 明文密碼, storedPasswordHash: 資料庫內儲存之 "saltHex:hashHex"
+     * [Output Contract] 驗證通過回傳 true，格式不符或密碼錯誤一律回傳 false
+     * [Called By] AuthHandler.handleLogin, AuthHandler.handleAdminLogin, AuthHandler.handleChangePassword
      */
     public static boolean verifyPassword(String rawPassword, String storedPasswordHash) {
-        if (rawPassword == null || storedPasswordHash == null) {
+        if (rawPassword == null || !isSaltedFormat(storedPasswordHash)) {
             return false;
         }
         String trimmedStored = storedPasswordHash.trim();
-        if (trimmedStored.isEmpty()) {
-            return false;
-        }
-
         int colonIndex = trimmedStored.indexOf(':');
-        if (colonIndex > 0) {
-            String saltHex = trimmedStored.substring(0, colonIndex).trim().toLowerCase();
-            String expectedHashHex = trimmedStored.substring(colonIndex + 1).trim().toLowerCase();
-            if (saltHex.isEmpty() || expectedHashHex.isEmpty()) {
-                return false;
-            }
-            String actualHashHex = hashWithSalt(saltHex, rawPassword);
-            return constantTimeEquals(actualHashHex, expectedHashHex);
-        } else {
-            String expectedLegacyHex = trimmedStored.toLowerCase();
-            String actualLegacyHex = sha256(rawPassword);
-            return constantTimeEquals(actualLegacyHex, expectedLegacyHex);
-        }
+
+        String saltHex = trimmedStored.substring(0, colonIndex).trim().toLowerCase();
+        String expectedHashHex = trimmedStored.substring(colonIndex + 1).trim().toLowerCase();
+
+        String actualHashHex = hashWithSalt(saltHex, rawPassword);
+        return constantTimeEquals(actualHashHex, expectedHashHex);
     }
 
     /**
-     * [職責] 檢測密碼雜湊是否為舊版無鹽格式
+     * [職責] 檢查儲存之雜湊字串是否符合標準加鹽格式 (32 Hex Salt + ":" + 64 Hex Hash)
+     * [Input Contract] storedPasswordHash: 資料庫密碼雜湊字串
+     * [Output Contract] 符合標準加鹽格式回傳 true，否則回傳 false
+     * [Called By] Security.verifyPassword, AdminHandler.handleStaffList
      */
-    public static boolean needsRehash(String storedPasswordHash) {
+    public static boolean isSaltedFormat(String storedPasswordHash) {
         if (storedPasswordHash == null) {
-            return true;
+            return false;
         }
         String trimmed = storedPasswordHash.trim();
         int colonIdx = trimmed.indexOf(':');
         if (colonIdx <= 0) {
-            return true;
+            return false;
         }
         String saltPart = trimmed.substring(0, colonIdx);
         String hashPart = trimmed.substring(colonIdx + 1);
-        return (saltPart.length() != SALT_BYTE_LENGTH * 2) || (hashPart.length() != 64);
+        return (saltPart.length() == SALT_BYTE_LENGTH * 2) && (hashPart.length() == 64);
     }
 
     /**
@@ -169,9 +156,7 @@ public class Security {
     }
 
     /**
-     * [職責] 接收 Authorization Header 字串進行身分校驗 (向下相容既有全數 Handler)
-     * [Input Contract] authHeader: 例如 "Bearer e3b0c442-..." 或純 Token 字串 (String)
-     * [Output Contract] 驗證成功回傳對應 UserSession，否則回傳 null
+     * [職責] 接收 Authorization Header 字串進行身分校驗
      */
     public static UserSession authenticate(String authHeader) {
         if (authHeader == null || authHeader.trim().isEmpty()) {
@@ -185,7 +170,7 @@ public class Security {
     }
 
     /**
-     * [職責] 直接由 HttpExchange 擷取標頭進行身分校驗 (多載便利方法)
+     * [職責] 直接由 HttpExchange 擷取標頭進行身分校驗
      */
     public static UserSession authenticate(HttpExchange exchange) {
         String token = extractToken(exchange);

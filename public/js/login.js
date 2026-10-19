@@ -1,19 +1,21 @@
 /**
  * 系統主登入認證前端控制器 (Portal Authentication & Debug Controller)
+ * File: /public/js/login.js
  *
  * 職責與邊界：
  * 1. 物理阻斷任何形式的瀏覽器原生表單提交，徹底消除密碼外洩於網址列之安全漏洞。
  * 2. 頁面載入時自動清理網址列歷史殘留之 Query String (?email=...&password=...)。
- * 3. 實作 Auth Debug Diagnostic Panel 即時除錯記錄，完整捕捉並視覺化 HTTP 狀態碼與後端原始回應。
- * 4. 實作外判身分狀態機 (REQUIRE_PROJECT_CODE) 與伺服器端加鹽雜湊身分驗證。
- * 5. 登入成功後嚴格寫入 portal.js 規範之 pb_token 與 pb_user 鍵名，避免進入 portal.html 時被判定未授權彈回。
+ * 3. 實作已登入狀態預檢 (GET /api/auth/me)：若已具備有效 pb_token 則自動導向 portal.html。
+ * 4. 實作 Auth Debug Diagnostic Panel 即時除錯記錄，完整捕捉並視覺化 HTTP 狀態碼與後端原始回應。
+ * 5. 實作外判身分狀態機 (REQUIRE_PROJECT_CODE) 與伺服器端 Salted SHA-256 身分驗證。
+ * 6. 登入成功後嚴格寫入 pb_token 與雙向正規化之 pb_user，並為 ADMIN 自動橋接後台憑證。
  */
 
-// 頁面載入初始化
 document.addEventListener('DOMContentLoaded', () => {
     cleanResidualUrlParams();
     initDebugPanel();
     initLoginEvents();
+    verifyExistingSessionAndRedirect();
 });
 
 /**
@@ -41,6 +43,53 @@ function initDebugPanel() {
         });
     }
     logDebug("Auth Controller initialized. Listening for credentials submission.");
+}
+
+/**
+ * [職責] 檢查是否已具備有效登入 Session，若有則自動導向 portal.html
+ */
+async function verifyExistingSessionAndRedirect() {
+    const existingToken = localStorage.getItem('pb_token') || sessionStorage.getItem('pb_token');
+    if (!existingToken) {
+        return;
+    }
+
+    logDebug("[Session Pre-check] Found existing pb_token. Verifying validity via GET /api/auth/me...");
+
+    try {
+        const res = await fetch('/api/auth/me', {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${existingToken}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (res.ok) {
+            const data = await res.json();
+            if (data && (data.success || data.status === 'SUCCESS') && data.user) {
+                logDebug(`[Session Pre-check] Active session verified for "${data.user.email}". Auto-redirecting to portal.html...`);
+                showAlert('Active session detected. Redirecting to workspace...', 'info');
+                handleLoginSuccess({ token: existingToken, user: data.user });
+                return;
+            }
+        }
+
+        logDebug("[Session Pre-check] Stored token is expired or invalid. Cleared stale credentials.", "warn");
+        clearStaleSession();
+    } catch (err) {
+        logDebug(`[Session Pre-check] Verification skipped: ${err.message}`, "warn");
+    }
+}
+
+/**
+ * [職責] 清除過期或失效的會話憑證
+ */
+function clearStaleSession() {
+    ['pb_token', 'pb_user', 'token', 'currentUser', 'adminToken', 'admin_user_id', 'admin_user_name', 'admin_user_email', 'admin_user_right'].forEach(k => {
+        localStorage.removeItem(k);
+        sessionStorage.removeItem(k);
+    });
 }
 
 /**
@@ -167,8 +216,9 @@ async function handleLoginSubmit() {
             return;
         }
 
-        if (response.ok && data.success) {
-            logDebug(`[Step 5] Authentication SUCCESS! Token granted. User PK_T05=${data.user ? data.user.pkT05 : 'N/A'}`);
+        if (response.ok && (data.success || data.status === 'SUCCESS')) {
+            const pk = data.user ? (data.user.pkT05 || data.user.pk_t05) : 'N/A';
+            logDebug(`[Step 5] Authentication SUCCESS! Token granted. User PK_T05=${pk}`);
             showAlert('Sign in successful! Redirecting to workspace...', 'info');
             handleLoginSuccess(data);
         } else if (data.code === 'REQUIRE_PROJECT_CODE' || data.requireProjectCode) {
@@ -205,34 +255,60 @@ async function handleLoginSubmit() {
 }
 
 /**
- * [職責] 登入成功後保存 Token 並平滑跳轉至 portal.html
- * [重要修復] 嚴格對齊 portal.js 預期之 pb_token 與 pb_user 鍵名
+ * [職責] 登入成功後保存 Token 與雙向正規化 User 物件，並平滑跳轉至 portal.html
  */
 function handleLoginSuccess(data) {
     const token = data.token;
-    const user = data.user;
-    const userStr = typeof user === 'string' ? user : JSON.stringify(user || {});
+    const rawUser = (typeof data.user === 'string') ? JSON.parse(data.user || '{}') : (data.user || {});
+
+    const pkT05 = rawUser.pkT05 || rawUser.pk_t05 || 0;
+    const stRight = (rawUser.stRight || rawUser.st_right || 'USER').toUpperCase();
+    const email = rawUser.email || '';
+    const name = rawUser.name || 'User';
+    const customPj = rawUser.fkT05PkT01Custom || rawUser.fk_t05_pk_t01_custom || 0;
+
+    const normalizedUser = {
+        ...rawUser,
+        pkT05: pkT05,
+        pk_t05: pkT05,
+        email: email,
+        name: name,
+        stRight: stRight,
+        st_right: stRight,
+        fkT05PkT01Custom: customPj
+    };
+
+    const userStr = JSON.stringify(normalizedUser);
 
     if (token) {
-        // portal.js 核心權杖金鑰（同步存入 localStorage 與 sessionStorage）
         localStorage.setItem('pb_token', token);
         sessionStorage.setItem('pb_token', token);
-        // 向下相容
         localStorage.setItem('token', token);
         sessionStorage.setItem('token', token);
     }
-    if (user) {
-        // portal.js 核心使用者上下文金鑰
-        localStorage.setItem('pb_user', userStr);
-        sessionStorage.setItem('pb_user', userStr);
-        // 向下相容
-        localStorage.setItem('currentUser', userStr);
-        sessionStorage.setItem('currentUser', userStr);
+
+    localStorage.setItem('pb_user', userStr);
+    sessionStorage.setItem('pb_user', userStr);
+    localStorage.setItem('currentUser', userStr);
+    sessionStorage.setItem('currentUser', userStr);
+
+    // 若為 ADMIN 身分，同步寫入後台管理金鑰，確保點擊 Admin Console 無縫進入
+    if (stRight === 'ADMIN' && token) {
+        localStorage.setItem('adminToken', token);
+        sessionStorage.setItem('adminToken', token);
+        localStorage.setItem('admin_user_id', String(pkT05));
+        sessionStorage.setItem('admin_user_id', String(pkT05));
+        localStorage.setItem('admin_user_name', name);
+        sessionStorage.setItem('admin_user_name', name);
+        localStorage.setItem('admin_user_email', email);
+        sessionStorage.setItem('admin_user_email', email);
+        localStorage.setItem('admin_user_right', 'ADMIN');
+        sessionStorage.setItem('admin_user_right', 'ADMIN');
     }
 
     setTimeout(() => {
         window.location.replace('portal.html');
-    }, 400);
+    }, 350);
 }
 
 /**

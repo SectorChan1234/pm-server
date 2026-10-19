@@ -1,4 +1,3 @@
-
 package handlers;
 
 import com.sun.net.httpserver.HttpExchange;
@@ -9,9 +8,30 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.URI;
 
+/**
+ * 靜態資源託管處理器 (Static Content Handler)
+ *
+ * 職責與邊界：
+ * 1. 動態解析 public 目錄實體路徑，徹底擺脫磁碟機代號 (C: / D: / O:) 硬編碼限制。
+ * 2. 嚴格比對 Canonical Path，防範目錄遍歷攻擊 (Directory Traversal)。
+ * 3. 託管 HTML, CSS, JS, 圖片等靜態前端資產。
+ */
 public class StaticHandler implements HttpHandler {
-    // 靜態網頁所在目錄
-    private static final String BASE_DIR = "C:/pm-server/public";
+
+    private static final File BASE_DIR = resolveBaseDir();
+
+    private static File resolveBaseDir() {
+        String userDir = System.getProperty("user.dir");
+        File dir = new File(userDir, "public");
+        if (dir.exists() && dir.isDirectory()) {
+            return dir;
+        }
+        File parentDir = new File(userDir, "../public");
+        if (parentDir.exists() && parentDir.isDirectory()) {
+            return parentDir;
+        }
+        return new File("public");
+    }
 
     @Override
     public void handle(HttpExchange exchange) throws IOException {
@@ -35,7 +55,15 @@ public class StaticHandler implements HttpHandler {
             return;
         }
 
-        File file = new File(BASE_DIR, path);
+        File file = new File(BASE_DIR, path).getCanonicalFile();
+        String baseCanonical = BASE_DIR.getCanonicalPath();
+
+        // 嚴格檢驗目標檔案是否包含於 BASE_DIR 之內
+        if (!file.getPath().startsWith(baseCanonical)) {
+            exchange.sendResponseHeaders(403, -1);
+            return;
+        }
+
         if (!file.exists() || file.isDirectory()) {
             String notFoundMsg = "404 Not Found: " + path;
             byte[] notFoundBytes = notFoundMsg.getBytes("UTF-8");

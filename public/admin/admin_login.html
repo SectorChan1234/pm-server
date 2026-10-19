@@ -1,35 +1,118 @@
 <!DOCTYPE html>
-<html lang="zh-HK">
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>管理員登入 (Admin Login)</title>
-  <link rel="stylesheet" href="/admin/css/admin_login.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Console Sign In - ProjectBook</title>
+    <link rel="stylesheet" href="../css/login.css?v=stage1_admin">
+    <link rel="stylesheet" href="css/admin_login.css?v=stage1_admin">
 </head>
-<body>
+<body class="login-body" style="background-color: #0f172a;">
+    <div class="login-wrapper">
+        <main class="login-card" role="main" style="border-top: 4px solid #dc2626;">
+            <!-- Branding Header -->
+            <div class="login-header">
+                <div class="brand-badge" style="background-color: #fef2f2; border-color: #fecaca;">
+                    <span class="brand-icon">🛡️</span>
+                    <span class="brand-title" style="color: #b91c1c;">ProjectBook Admin</span>
+                </div>
+                <h1 class="portal-heading">System Administration</h1>
+                <p class="portal-subheading">Restricted access. Zero-Trust Salted SHA-256 verification required.</p>
+            </div>
 
-  <div class="login-card">
-    <h2>管理員登入</h2>
-    <p class="subtitle">請輸入您的管理員公務帳號與安全密碼</p>
+            <!-- Dynamic Alert Banner -->
+            <div id="adminLoginAlert" class="alert-banner" style="display: none;" role="alert" aria-live="polite"></div>
 
-    <div class="form-group">
-      <label for="admin-email">管理員電郵帳號 (Admin Email)：</label>
-      <input type="text" id="admin-email" placeholder="例如: admin@swd.gov.hk 或 admin" autofocus>
+            <!-- Existing Session Fast-Track Banner (若已於 portal.html 登入 ADMIN 則顯示一鍵進入) -->
+            <div id="existingAdminSessionBox" style="display: none; background: #ecfdf5; border: 1px solid #6ee7b7; border-radius: 8px; padding: 1rem; margin-bottom: 1.25rem; text-align: center;">
+                <div style="font-size: 0.85rem; color: #065f46; font-weight: 600; margin-bottom: 0.65rem;">
+                    ✅ Active Administrator Session Detected (<span id="detectedAdminEmail"></span>)
+                </div>
+                <div style="display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap;">
+                    <button type="button" id="btnContinueDBConsole" class="btn btn-primary" style="background-color: #059669; font-size: 0.82rem; padding: 0.5rem 0.85rem;">
+                        🗄️ Open DB Table Control
+                    </button>
+                    <button type="button" id="btnContinueStaffSetup" class="btn btn-primary" style="background-color: #1e40af; font-size: 0.82rem; padding: 0.5rem 0.85rem;">
+                        🔐 Open Staff Password Setup
+                    </button>
+                </div>
+            </div>
+
+            <!-- Admin Authentication Form (移除所有 input name 屬性，阻斷原生 GET 洩漏密碼) -->
+            <form id="adminLoginForm" class="login-form" onsubmit="return false;" novalidate>
+                <div class="form-group">
+                    <label for="adminEmail" class="form-label">
+                        Administrator Email <span class="required-mark" aria-hidden="true">*</span>
+                    </label>
+                    <div class="input-wrapper">
+                        <span class="input-icon" aria-hidden="true">✉️</span>
+                        <input 
+                            type="email" 
+                            id="adminEmail" 
+                            class="form-input" 
+                            placeholder="e.g. admin@domain.com" 
+                            required 
+                            autocomplete="username"
+                            spellcheck="false"
+                        >
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="adminPassword" class="form-label">
+                        Password <span class="required-mark" aria-hidden="true">*</span>
+                    </label>
+                    <div class="input-wrapper">
+                        <span class="input-icon" aria-hidden="true">🔑</span>
+                        <input 
+                            type="password" 
+                            id="adminPassword" 
+                            class="form-input" 
+                            placeholder="Enter administrator password" 
+                            required 
+                            autocomplete="current-password"
+                        >
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="adminTargetPage" class="form-label">Destination Module</label>
+                    <div class="input-wrapper">
+                        <span class="input-icon" aria-hidden="true">🧭</span>
+                        <select id="adminTargetPage" class="form-input" style="padding-left: 2.6rem;">
+                            <option value="DB_TableControl.html">🗄️ Database Table Control (DB_TableControl.html)</option>
+                            <option value="StaffPasswordSetup.html">🔐 Staff &amp; Password Governance (StaffPasswordSetup.html)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="button" id="adminLoginBtn" class="btn btn-primary btn-block" style="background-color: #b91c1c;">
+                        <span class="btn-text">Authorize &amp; Enter Console</span>
+                    </button>
+                </div>
+            </form>
+
+            <!-- Debug Diagnostic Panel -->
+            <section style="margin-top: 1.25rem; border: 1px solid #cbd5e1; border-radius: 6px; background: #0f172a; color: #e2e8f0; padding: 0.75rem; font-family: monospace; font-size: 0.75rem; line-height: 1.4;">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 0.35rem; margin-bottom: 0.4rem;">
+                    <strong style="color: #f87171;">🛡️ Admin Auth Diagnostic Log</strong>
+                    <button type="button" id="clearAdminDebugBtn" style="background: #334155; color: #f8fafc; border: none; border-radius: 4px; padding: 2px 6px; font-size: 0.68rem; cursor: pointer;">Clear</button>
+                </div>
+                <pre id="adminDebugLog" style="white-space: pre-wrap; word-break: break-all; margin: 0; max-height: 180px; overflow-y: auto; color: #a7f3d0;">[System] Waiting for admin_login.js...</pre>
+            </section>
+
+            <!-- Card Footer -->
+            <footer class="login-footer">
+                <div class="footer-links">
+                    <a href="../portal.html" class="admin-link">← Return to Portal Workspace</a>
+                    <a href="../index.html" class="admin-link">Standard Sign In</a>
+                </div>
+                <p class="copyright-notice">&copy; ProjectBook Security &amp; Governance Engine.</p>
+            </footer>
+        </main>
     </div>
 
-    <div class="form-group">
-      <label for="admin-password">密碼：</label>
-      <input type="password" id="admin-password" placeholder="請輸入密碼">
-    </div>
-
-    <button id="login-btn" onclick="handleLogin()">登入系統</button>
-    <div id="error-msg" class="error-msg"></div>
-
-    <div class="nav-links">
-      <a href="/index.html">← 返回一般登入</a>
-      <a href="/admin/StaffPasswordSetup.html">帳號與密碼設定中心 →</a>
-    </div>
-  </div>
-
-  <script src="/admin/js/admin_login.js"></script>
+    <script src="js/admin_login.js?v=stage1_admin"></script>
 </body>
 </html>

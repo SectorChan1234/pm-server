@@ -1,156 +1,247 @@
+/**
+ * H2 資料庫萬用控制台核心控制器 (Universal Database Control Engine)
+ * File: /public/admin/js/DB_TableControl.js
+ * Architecture: Zero-Trust Intranet, Vanilla JS (No External Dependencies)
+ * 
+ * 核心功能：
+ * 1. 完整相容 DBAdminHandler.java JSON 傳輸契約與 Bearer Token 鑑權。
+ * 2. 嚴格貫徹 H2 雙引號轉義規範 ("TableName", "ColumnName")，防止大小寫識別失敗。
+ * 3. 雙檢視支援：資料檢視 (Data View) 與綱要結構檢視 (Schema View)。
+ * 4. 完整實作單筆新增、Excel 批次貼上匯入映射、全 DB 架構匯出 (UI/DDL/Markdown)。
+ * 5. 稽核保護：T99_AuditLog 自動鎖定唯讀，阻斷任何修改、刪除或清空操作。
+ * 6. 即時動態排序、多欄位篩選、單元格雙擊快編、整庫 SCRIPT 備份下載。
+ */
+
+// ==========================================
+// 全域狀態管理 (State Management)
+// ==========================================
 let currentTable = '';
-let currentView = 'data';
+let currentView = 'data';          // 'data' | 'schema'
 let currentPrimaryKey = '';
-let tableColumns = [];
-let allTablesList = [];
+let tableColumns = [];             // 欄位中繼資料清單
+let allTablesList = [];            // 資料表清單
 
-let uniqueConstraintsMap = {}; 
-let indexesMap = {};           
-let foreignKeysMap = {};
+let uniqueConstraintsMap = {};     // 唯一性約束快取 { colName: constraintName }
+let indexesMap = {};               // 索引快取 { colName: indexName }
+let foreignKeysMap = {};           // 外鍵快取 { colName: { constraintName, pkTable, pkCol } }
 
-let currentSortColumn = '';     
-let currentSortOrder = 'DESC';   
-let currentFilters = {};        
-let currentLimit = 100;
+let currentSortColumn = '';        // 當前排序欄位
+let currentSortOrder = 'DESC';     // 'ASC' | 'DESC'
+let currentFilters = {};           // 篩選條件快取 { colName: filterValue }
+let currentLimit = 100;            // 查詢上限筆數
 
 // ==========================================
-// 權限檢查與通訊工具 (全面遷移至 localStorage)
+// 權限檢核與 API 通訊層 (Auth & Transport)
 // ==========================================
+function getActiveToken() {
+  return localStorage.getItem('pb_token') || sessionStorage.getItem('pb_token') ||
+         localStorage.getItem('adminToken') || sessionStorage.getItem('adminToken') ||
+         localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+}
+
 function checkAdminAuth() {
-  const token = localStorage.getItem('pb_token') || sessionStorage.getItem('pb_token');
-  const role = localStorage.getItem('admin_user_right') || sessionStorage.getItem('admin_user_right');
-  const userId = localStorage.getItem('admin_user_id') || sessionStorage.getItem('admin_user_id');
+  const token = getActiveToken();
+  let userRight = (localStorage.getItem('admin_user_right') || sessionStorage.getItem('admin_user_right') || '').toUpperCase();
 
-  if (!token || !userId || role !== 'ADMIN') {
-    alert('【存取拒絕】您尚未登入管理員帳號或無管理員 (ADMIN) 權限，即將返回首頁！');
-    window.location.replace('/admin/admin_login.html');
+  if (!userRight) {
+    try {
+      const userStr = localStorage.getItem('pb_user') || sessionStorage.getItem('pb_user') ||
+                      localStorage.getItem('currentUser') || sessionStorage.getItem('currentUser') || '{}';
+      const u = JSON.parse(userStr);
+      userRight = (u.stRight || u.st_right || '').toUpperCase();
+    } catch (e) {
+      userRight = '';
+    }
+  }
+
+  if (!token || userRight !== 'ADMIN') {
+    alert('⚠️【Access Denied】需要管理員 (ADMIN) 權限方可存取資料庫主控台。即將返回登入頁。');
+    window.location.replace('admin_login.html');
     return false;
   }
   return true;
 }
 
+/**
+ * 執行 SQL 查詢 (支援 /api/query 與 /api/admin/query 雙向回退)
+ */
 async function dbQuery(sql) {
-  const token = localStorage.getItem('pb_token') || sessionStorage.getItem('pb_token');
-  const res = await fetch('/api/query', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'text/plain; charset=UTF-8',
-      'Authorization': `Bearer ${token}`
-    },
-    body: sql
-  });
+  const token = getActiveToken();
+  const headers = {
+    'Content-Type': 'application/json; charset=UTF-8',
+    'Authorization': `Bearer ${token}`
+  };
 
-  if (res.status === 401 || res.status === 403) {
-    alert('身分認證失效或無管理權限，請重新登入。');
-    window.location.replace('/admin/admin_login.html');
-    return [];
+  const endpoints = ['/api/query', '/api/admin/query'];
+  let lastError = null;
+
+  for (const url of endpoints) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({ sql: sql })
+      });
+
+      if (res.status === 404) continue;
+      if (res.status === 401 || res.status === 403) {
+        alert('身分驗證失效或無管理權限，請重新登入。');
+        window.location.replace('admin_login.html');
+        throw new Error('未授權的操作');
+      }
+
+      const json = await res.json();
+      if (!res.ok || json.success === false) {
+        throw new Error(json.message || `HTTP ${res.status}`);
+      }
+
+      // 解包 DBAdminHandler 所回傳之 data 陣列
+      return Array.isArray(json.data) ? json.data : (Array.isArray(json) ? json : []);
+    } catch (err) {
+      lastError = err;
+    }
   }
-
-  const data = await res.json();
-  if (data.error) throw new Error(data.error);
-  return data;
+  throw lastError || new Error('後端連線失敗 (/api/query 與 /api/admin/query 均無回應)');
 }
 
+/**
+ * 執行 SQL 更新/變更 (INSERT / UPDATE / DELETE / DDL)
+ */
 async function dbExecute(sql) {
-  const token = localStorage.getItem('pb_token') || sessionStorage.getItem('pb_token');
-  const adminId = localStorage.getItem('admin_user_id') || sessionStorage.getItem('admin_user_id') || '';
-  const adminEmail = localStorage.getItem('admin_user_email') || sessionStorage.getItem('admin_user_email') || '';
+  const token = getActiveToken();
+  const headers = {
+    'Content-Type': 'application/json; charset=UTF-8',
+    'Authorization': `Bearer ${token}`
+  };
 
-  const res = await fetch('/api/execute', {
-    method: 'POST',
-    headers: { 
-      'Content-Type': 'text/plain; charset=UTF-8',
-      'Authorization': `Bearer ${token}`,
-      'X-Admin-User-Id': adminId,
-      'X-Admin-Email': adminEmail
-    },
-    body: sql
-  });
+  const endpoints = ['/api/execute', '/api/admin/execute'];
+  let lastError = null;
 
-  if (res.status === 401 || res.status === 403) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.message || '操作被拒絕：權限不足或日誌受保護');
+  for (const url of endpoints) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({ sql: sql })
+      });
+
+      if (res.status === 404) continue;
+      if (res.status === 401 || res.status === 403) {
+        alert('身分驗證失效或無管理權限，請重新登入。');
+        window.location.replace('admin_login.html');
+        throw new Error('未授權的操作');
+      }
+
+      const json = await res.json();
+      if (!res.ok || json.success === false) {
+        throw new Error(json.message || `HTTP ${res.status}`);
+      }
+      return json;
+    } catch (err) {
+      lastError = err;
+    }
   }
-
-  const data = await res.json();
-  if (data.error) throw new Error(data.error);
-  return data;
+  throw lastError || new Error('後端連線失敗 (/api/execute 與 /api/admin/execute 均無回應)');
 }
 
 function setStatus(msg, isError = false) {
   const el = document.getElementById('status-msg');
+  if (!el) return;
   el.textContent = msg;
   el.style.color = isError ? 'var(--danger)' : '#16a34a';
-  setTimeout(() => el.textContent = '', 4000);
+  setTimeout(() => {
+    if (el.textContent === msg) el.textContent = '';
+  }, 4500);
+}
+
+function isAuditLogTable() {
+  return (currentTable || '').toUpperCase() === 'T99_AUDITLOG';
 }
 
 // ==========================================
-// 1. 初始化資料表清單
+// 1. 初始化與資料表載入 (Table Loading)
 // ==========================================
 async function loadTableList() {
   try {
-    const sql = `SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'PUBLIC' ORDER BY TABLE_NAME`;
+    const sql = `SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE UPPER(TABLE_SCHEMA) = 'PUBLIC' ORDER BY TABLE_NAME ASC`;
     const list = await dbQuery(sql);
-    allTablesList = list.map(t => t.TABLE_NAME);
-    
+    allTablesList = list.map(t => t.TABLE_NAME || Object.values(t)[0]);
+
     const sel = document.getElementById('table-select');
+    if (!sel) return;
     sel.innerHTML = '';
 
-    if (list.length === 0) {
+    if (allTablesList.length === 0) {
       sel.innerHTML = '<option value="">(無可用資料表)</option>';
       return;
     }
 
-    list.forEach(t => {
+    allTablesList.forEach(tbl => {
       const opt = document.createElement('option');
-      opt.value = t.TABLE_NAME;
-      opt.textContent = t.TABLE_NAME;
+      opt.value = tbl;
+      opt.textContent = tbl;
       sel.appendChild(opt);
     });
 
-    currentTable = list[0].TABLE_NAME;
-    loadCurrentTable();
+    // 優先選取 T05_Staff 或第一張表
+    const preferred = allTablesList.find(t => t.toUpperCase() === 'T05_STAFF') || allTablesList[0];
+    sel.value = preferred;
+    currentTable = preferred;
+    await loadCurrentTable();
   } catch (err) {
-    alert('取得資料表清單失敗: ' + err.message);
+    console.error('載入資料表清單失敗:', err);
+    setStatus('取得資料表清單失敗: ' + err.message, true);
   }
 }
 
 function onTableSelectChanged() {
+  const sel = document.getElementById('table-select');
+  currentTable = sel ? sel.value : '';
   currentSortColumn = '';
   currentSortOrder = 'DESC';
   currentFilters = {};
   loadCurrentTable();
 }
 
-function isAuditLogTable() {
-  return currentTable.toUpperCase() === 'T99_AUDITLOG';
-}
-
-// ==========================================
-// 2. 檢視切換與載入
-// ==========================================
 function switchTab(view) {
   currentView = view;
-  document.getElementById('tab-data-btn').className = 'tab-btn ' + (view === 'data' ? 'active' : '');
-  document.getElementById('tab-schema-btn').className = 'tab-btn ' + (view === 'schema' ? 'active' : '');
-  document.getElementById('schema-tools').style.display = (view === 'schema' && !isAuditLogTable()) ? 'block' : 'none';
-  document.getElementById('ddl-section').style.display = view === 'schema' ? 'block' : 'none';
-  document.getElementById('table-info-bar').style.display = view === 'data' ? 'flex' : 'none';
+  const dataBtn = document.getElementById('tab-data-btn');
+  const schemaBtn = document.getElementById('tab-schema-btn');
+  if (dataBtn) dataBtn.className = 'tab-btn ' + (view === 'data' ? 'active' : '');
+  if (schemaBtn) schemaBtn.className = 'tab-btn ' + (view === 'schema' ? 'active' : '');
+
+  const isAudit = isAuditLogTable();
+  const schemaTools = document.getElementById('schema-tools');
+  const ddlSection = document.getElementById('ddl-section');
+  const infoBar = document.getElementById('table-info-bar');
+
+  if (schemaTools) schemaTools.style.display = (view === 'schema' && !isAudit) ? 'block' : 'none';
+  if (ddlSection) ddlSection.style.display = view === 'schema' ? 'block' : 'none';
+  if (infoBar) infoBar.style.display = view === 'data' ? 'flex' : 'none';
+
   loadCurrentTable();
 }
 
 async function loadCurrentTable() {
   const sel = document.getElementById('table-select');
-  currentTable = sel.value;
+  if (sel && sel.value) {
+    currentTable = sel.value;
+  }
   if (!currentTable) return;
 
   const isAudit = isAuditLogTable();
-  document.getElementById('btn-insert-single').style.display = isAudit ? 'none' : 'inline-block';
-  document.getElementById('btn-insert-batch').style.display = isAudit ? 'none' : 'inline-block';
-  document.getElementById('btn-truncate').style.display = isAudit ? 'none' : 'inline-block';
-  document.getElementById('append-only-badge').style.display = isAudit ? 'inline' : 'none';
-  if (currentView === 'schema') {
-    document.getElementById('schema-tools').style.display = isAudit ? 'none' : 'block';
+  const btnSingle = document.getElementById('btn-insert-single');
+  const btnBatch = document.getElementById('btn-insert-batch');
+  const btnTruncate = document.getElementById('btn-truncate');
+  const auditBadge = document.getElementById('append-only-badge');
+  const schemaTools = document.getElementById('schema-tools');
+
+  if (btnSingle) btnSingle.style.display = isAudit ? 'none' : 'inline-block';
+  if (btnBatch) btnBatch.style.display = isAudit ? 'none' : 'inline-block';
+  if (btnTruncate) btnTruncate.style.display = isAudit ? 'none' : 'inline-block';
+  if (auditBadge) auditBadge.style.display = isAudit ? 'inline' : 'none';
+  if (schemaTools && currentView === 'schema') {
+    schemaTools.style.display = isAudit ? 'none' : 'block';
   }
 
   try {
@@ -163,77 +254,115 @@ async function loadCurrentTable() {
       await loadTableDDL();
     }
   } catch (err) {
-    alert('讀取失敗: ' + err.message);
+    console.error('載入資料表失敗:', err);
+    setStatus('讀取失敗: ' + err.message, true);
   }
 }
 
+// ==========================================
+// 2. 中繼資料探測 (Metadata Detection)
+// ==========================================
 async function detectTableMetadata() {
   const metaSql = `
-    SELECT COLUMN_NAME, TYPE_NAME, CHARACTER_MAXIMUM_LENGTH, IS_NULLABLE, COLUMN_DEFAULT
+    SELECT COLUMN_NAME, TYPE_NAME, CHARACTER_MAXIMUM_LENGTH, IS_NULLABLE, COLUMN_DEFAULT, ORDINAL_POSITION
     FROM INFORMATION_SCHEMA.COLUMNS
-    WHERE TABLE_SCHEMA = 'PUBLIC' AND TABLE_NAME = '${currentTable}'
-    ORDER BY ORDINAL_POSITION
+    WHERE UPPER(TABLE_SCHEMA) = 'PUBLIC' AND UPPER(TABLE_NAME) = UPPER('${currentTable}')
+    ORDER BY ORDINAL_POSITION ASC
   `;
   tableColumns = await dbQuery(metaSql);
 
-  const pkCol = tableColumns.find(c => c.COLUMN_NAME.startsWith('PK_') || c.COLUMN_NAME.toLowerCase().includes('id'));
-  currentPrimaryKey = pkCol ? pkCol.COLUMN_NAME : (tableColumns[0] ? tableColumns[0].COLUMN_NAME : '');
+  // 1. 探測 Primary Key (優先從 INFORMATION_SCHEMA.CONSTRAINTS 獲取)
+  currentPrimaryKey = '';
+  try {
+    const pkSql = `
+      SELECT COLUMN_LIST
+      FROM INFORMATION_SCHEMA.CONSTRAINTS
+      WHERE UPPER(TABLE_SCHEMA) = 'PUBLIC' AND UPPER(TABLE_NAME) = UPPER('${currentTable}') AND CONSTRAINT_TYPE = 'PRIMARY KEY'
+    `;
+    const pks = await dbQuery(pkSql);
+    if (pks.length > 0 && pks[0].COLUMN_LIST) {
+      currentPrimaryKey = pks[0].COLUMN_LIST.split(',')[0].trim();
+    }
+  } catch (e) {
+    console.warn('PK 約束探測降級:', e);
+  }
 
+  if (!currentPrimaryKey) {
+    const pkCol = tableColumns.find(c => c.COLUMN_NAME.toUpperCase().startsWith('PK_') || c.COLUMN_NAME.toUpperCase().endsWith('_ID'));
+    currentPrimaryKey = pkCol ? pkCol.COLUMN_NAME : (tableColumns[0] ? tableColumns[0].COLUMN_NAME : '');
+  }
+
+  // 2. 探測 UNIQUE 約束
   uniqueConstraintsMap = {};
   try {
     const uqSql = `
       SELECT CONSTRAINT_NAME, COLUMN_LIST
       FROM INFORMATION_SCHEMA.CONSTRAINTS
-      WHERE TABLE_SCHEMA = 'PUBLIC' AND TABLE_NAME = '${currentTable}' AND CONSTRAINT_TYPE = 'UNIQUE'
+      WHERE UPPER(TABLE_SCHEMA) = 'PUBLIC' AND UPPER(TABLE_NAME) = UPPER('${currentTable}') AND CONSTRAINT_TYPE = 'UNIQUE'
     `;
     const uqs = await dbQuery(uqSql);
     uqs.forEach(u => {
-      if (u.COLUMN_LIST) uniqueConstraintsMap[u.COLUMN_LIST.trim()] = u.CONSTRAINT_NAME;
+      if (u.COLUMN_LIST) {
+        uniqueConstraintsMap[u.COLUMN_LIST.trim()] = u.CONSTRAINT_NAME;
+      }
     });
-  } catch (e) { console.warn('UQ 探測失敗:', e); }
+  } catch (e) {
+    console.warn('UQ 約束探測失敗:', e);
+  }
 
+  // 3. 探測獨立 INDEX
   indexesMap = {};
   try {
     const idxSql = `
       SELECT INDEX_NAME, COLUMN_NAME
       FROM INFORMATION_SCHEMA.INDEXES
-      WHERE TABLE_SCHEMA = 'PUBLIC' AND TABLE_NAME = '${currentTable}' 
+      WHERE UPPER(TABLE_SCHEMA) = 'PUBLIC' AND UPPER(TABLE_NAME) = UPPER('${currentTable}') 
         AND PRIMARY_KEY = FALSE AND NON_UNIQUE = TRUE
     `;
     const idxs = await dbQuery(idxSql);
     idxs.forEach(i => {
-      if (i.COLUMN_NAME) indexesMap[i.COLUMN_NAME.trim()] = i.INDEX_NAME;
+      if (i.COLUMN_NAME) {
+        indexesMap[i.COLUMN_NAME.trim()] = i.INDEX_NAME;
+      }
     });
-  } catch (e) { console.warn('Index 探測失敗:', e); }
+  } catch (e) {
+    console.warn('Index 探測失敗:', e);
+  }
 
+  // 4. 探測外鍵 (Foreign Keys)
   foreignKeysMap = {};
   try {
     const fkSql = `
       SELECT FKCOLUMN_NAME, PKTABLE_NAME, PKCOLUMN_NAME, FK_NAME
       FROM INFORMATION_SCHEMA.CROSS_REFERENCES
-      WHERE FKTABLE_SCHEMA = 'PUBLIC' AND FKTABLE_NAME = '${currentTable}'
+      WHERE UPPER(FKTABLE_SCHEMA) = 'PUBLIC' AND UPPER(FKTABLE_NAME) = UPPER('${currentTable}')
     `;
     const fks = await dbQuery(fkSql);
     fks.forEach(f => {
-      foreignKeysMap[f.FKCOLUMN_NAME] = {
-        constraintName: f.FK_NAME,
-        pkTable: f.PKTABLE_NAME,
-        pkCol: f.PKCOLUMN_NAME
-      };
+      if (f.FKCOLUMN_NAME) {
+        foreignKeysMap[f.FKCOLUMN_NAME.trim()] = {
+          constraintName: f.FK_NAME,
+          pkTable: f.PKTABLE_NAME,
+          pkCol: f.PKCOLUMN_NAME
+        };
+      }
     });
-  } catch (e) { console.warn('FK 探測失敗:', e); }
+  } catch (e) {
+    console.warn('FK 探測失敗:', e);
+  }
 }
 
 // ==========================================
-// 2.1 渲染資料內容 (Data View)
+// 3. 資料檢視渲染 (Data View & Filtering)
 // ==========================================
 async function renderDataView() {
   const thead = document.getElementById('table-head');
   const tbody = document.getElementById('table-body');
+  if (!thead || !tbody) return;
+
   const isAudit = isAuditLogTable();
-  
   thead.innerHTML = buildTableHeadHtml();
-  tbody.innerHTML = '<tr><td colspan="' + (tableColumns.length + 1) + '" style="text-align:center; padding: 25px; color:#64748b;">正在載入資料...</td></tr>';
+  tbody.innerHTML = `<tr><td colspan="${tableColumns.length + 1}" style="text-align:center; padding: 25px; color:#64748b;">正在載入資料...</td></tr>`;
 
   const dataSql = buildDynamicSelectSql();
   const countSql = buildDynamicCountSql();
@@ -249,8 +378,13 @@ async function renderDataView() {
     const totalCount = totalRes[0] ? (totalRes[0].TOTAL || totalRes[0].total || 0) : 0;
 
     const hasFilters = Object.keys(currentFilters).length > 0;
-    document.getElementById('active-filter-badge').style.display = hasFilters ? 'inline' : 'none';
-    document.getElementById('record-count-info').innerHTML = `顯示 <strong>${rows.length}</strong> 筆 / 篩選命中 <strong>${filteredCount}</strong> 筆 (全表共 ${totalCount} 筆)`;
+    const filterBadge = document.getElementById('active-filter-badge');
+    if (filterBadge) filterBadge.style.display = hasFilters ? 'inline' : 'none';
+
+    const countInfo = document.getElementById('record-count-info');
+    if (countInfo) {
+      countInfo.innerHTML = `顯示 <strong>${rows.length}</strong> 筆 / 篩選命中 <strong>${filteredCount}</strong> 筆 (全表共 ${totalCount} 筆)`;
+    }
 
     if (rows.length === 0) {
       tbody.innerHTML = `<tr><td colspan="${tableColumns.length + 1}" style="text-align:center; padding: 30px; color:#94a3b8;">無符合條件的記錄</td></tr>`;
@@ -260,21 +394,40 @@ async function renderDataView() {
     tbody.innerHTML = '';
     rows.forEach(row => {
       const tr = document.createElement('tr');
-      const pkVal = row[currentPrimaryKey];
+      const pkVal = row[currentPrimaryKey] !== undefined ? row[currentPrimaryKey] : '';
 
-      let rowHtml = isAudit 
-        ? `<td style="text-align:center; color:#94a3b8; font-size:11px;">🔒 唯讀</td>`
-        : `<td style="text-align:center;"><button class="danger" style="padding: 2px 7px; font-size: 11px;" onclick="deleteRow('${pkVal}')">刪除</button></td>`;
-      
+      let rowHtml = isAudit
+        ? `<td style="text-align:center; color:#94a3b8; font-size:11px; font-weight:600;">🔒 唯讀</td>`
+        : `<td style="text-align:center;"><button class="danger" style="padding: 2px 7px; font-size: 11px;" onclick="deleteRow('${escapeJs(String(pkVal))}')">刪除</button></td>`;
+
       tableColumns.forEach(c => {
         const colName = c.COLUMN_NAME;
         const val = row[colName];
-        const displayVal = val === null ? '<span style="color:#cbd5e1;">NULL</span>' : escapeHtml(val.toString());
-        const isEditable = !isAudit && colName !== currentPrimaryKey;
+        let displayVal = '';
 
+        if (val === null || val === undefined) {
+          displayVal = '<span style="color:#cbd5e1; font-style:italic;">NULL</span>';
+        } else if (typeof val === 'boolean') {
+          displayVal = val ? '<span style="color:#16a34a; font-weight:bold;">TRUE</span>' : '<span style="color:#dc2626; font-weight:bold;">FALSE</span>';
+        } else {
+          const strVal = String(val);
+          // 密碼雜湊防禦標記 (Stage 1 Salted 成果檢驗)
+          if (colName.toUpperCase().includes('PASSWORD') || colName.toUpperCase().includes('HASH')) {
+            if (strVal.includes(':')) {
+              displayVal = `<span style="background:#dcfce7; color:#15803d; padding:2px 6px; border-radius:4px; font-size:0.75rem; font-family:monospace;" title="${escapeHtml(strVal)}">🔒 Salted (${strVal.substring(0, 10)}...)</span>`;
+            } else {
+              displayVal = `<span style="background:#fef3c7; color:#b45309; padding:2px 6px; border-radius:4px; font-size:0.75rem; font-family:monospace;" title="${escapeHtml(strVal)}">⚠️ Legacy (${strVal.substring(0, 8)}...)</span>`;
+            }
+          } else {
+            const truncated = strVal.length > 55 ? strVal.substring(0, 55) + '...' : strVal;
+            displayVal = `<span title="${escapeHtml(strVal)}">${escapeHtml(truncated)}</span>`;
+          }
+        }
+
+        const isEditable = !isAudit && colName !== currentPrimaryKey;
         rowHtml += `<td class="${isEditable ? 'editable' : ''}" 
-                        ${isEditable ? `ondblclick="editCell(this, '${pkVal}', '${colName}')"` : ''} 
-                        title="${isEditable ? '雙擊以修改內容' : (isAudit ? '稽核表不可修改' : '主鍵不可編輯')}">${displayVal}</td>`;
+                        ${isEditable ? `ondblclick="editCell(this, '${escapeJs(String(pkVal))}', '${escapeJs(colName)}')"` : ''} 
+                        title="${isEditable ? '雙擊以修改欄位內容' : (isAudit ? '稽核表不可修改' : '主鍵不可編輯')}">${displayVal}</td>`;
       });
 
       tr.innerHTML = rowHtml;
@@ -282,7 +435,7 @@ async function renderDataView() {
     });
 
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="${tableColumns.length + 1}" style="text-align:center; padding: 20px; color:var(--danger);">查詢執行失敗: ${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="${tableColumns.length + 1}" style="text-align:center; padding: 20px; color:var(--danger);">查詢執行失敗: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
@@ -297,18 +450,18 @@ function buildTableHeadHtml() {
 
     let sortIcon = '<span style="color:#cbd5e1; font-size:10px; margin-left:4px;">↕</span>';
     if (currentSortColumn === col) {
-      sortIcon = currentSortOrder === 'ASC' 
-        ? '<span style="color:var(--primary); font-weight:bold; margin-left:4px;">▲</span>' 
+      sortIcon = currentSortOrder === 'ASC'
+        ? '<span style="color:var(--primary); font-weight:bold; margin-left:4px;">▲</span>'
         : '<span style="color:var(--primary); font-weight:bold; margin-left:4px;">▼</span>';
     } else if (!currentSortColumn && isPk) {
-      sortIcon = currentSortOrder === 'ASC' 
-        ? '<span style="color:#94a3b8; margin-left:4px;">▲</span>' 
+      sortIcon = currentSortOrder === 'ASC'
+        ? '<span style="color:#94a3b8; margin-left:4px;">▲</span>'
         : '<span style="color:#94a3b8; margin-left:4px;">▼</span>';
     }
 
     row1 += `
-      <th class="sortable-th" onclick="handleSortClick('${col}')" title="點擊切換升降序排序">
-        ${col}
+      <th class="sortable-th" onclick="handleSortClick('${escapeJs(col)}')" title="點擊切換排序">
+        ${escapeHtml(col)}
         ${isPk ? '<span class="badge badge-pk">PK</span>' : ''} 
         ${isUq ? '<span class="badge badge-uq">UQ</span>' : ''} 
         ${isFk ? '<span class="badge badge-fk">FK</span>' : ''}
@@ -322,13 +475,13 @@ function buildTableHeadHtml() {
   let row2 = '<tr class="filter-row"><th style="text-align:center;"><button class="secondary" style="padding: 2px 5px; font-size: 10px;" onclick="clearAllFilters()" title="清除所有條件">✕ 清空</button></th>';
   tableColumns.forEach(c => {
     const col = c.COLUMN_NAME;
-    const type = c.TYPE_NAME.toUpperCase();
+    const type = (c.TYPE_NAME || '').toUpperCase();
     const currentVal = currentFilters[col] || '';
 
     if (type === 'BOOLEAN') {
       row2 += `
         <th>
-          <select class="filter-input" onchange="onFilterChanged('${col}', this.value)">
+          <select class="filter-input" onchange="onFilterChanged('${escapeJs(col)}', this.value)">
             <option value="">(全部)</option>
             <option value="TRUE" ${currentVal === 'TRUE' ? 'selected' : ''}>TRUE</option>
             <option value="FALSE" ${currentVal === 'FALSE' ? 'selected' : ''}>FALSE</option>
@@ -340,8 +493,8 @@ function buildTableHeadHtml() {
       row2 += `
         <th>
           <input type="text" class="filter-input" placeholder="篩選..." value="${escapeHtml(currentVal)}"
-                 onchange="onFilterChanged('${col}', this.value)"
-                 onkeydown="if(event.key==='Enter') onFilterChanged('${col}', this.value)">
+                 onchange="onFilterChanged('${escapeJs(col)}', this.value)"
+                 onkeydown="if(event.key==='Enter') onFilterChanged('${escapeJs(col)}', this.value)">
         </th>
       `;
     }
@@ -438,13 +591,14 @@ function clearAllFilters() {
 }
 
 // ==========================================
-// 2.2 渲染表結構 (Schema View)
+// 4. 表結構檢視與 DDL (Schema View & DDL)
 // ==========================================
 async function renderSchemaView() {
   const thead = document.getElementById('table-head');
   const tbody = document.getElementById('table-body');
+  if (!thead || !tbody) return;
   const isAudit = isAuditLogTable();
-  
+
   thead.innerHTML = `
     <tr>
       <th>欄位名稱</th>
@@ -465,8 +619,9 @@ async function renderSchemaView() {
     const col = c.COLUMN_NAME;
     const isPk = col === currentPrimaryKey;
     const isNullable = c.IS_NULLABLE === 'YES';
-    const canChangeLength = ['VARCHAR', 'CHARACTER VARYING', 'CHAR'].includes(c.TYPE_NAME.toUpperCase());
-    
+	const colTypeUpper = (c.TYPE_NAME || '').toUpperCase();
+	const stringTypes = ['VARCHAR', 'CHARACTER VARYING', 'CHAR', 'VARCHAR_IGNORECASE', 'NVARCHAR', 'VARCHAR2'];
+	const canChangeLength = stringTypes.includes(colTypeUpper) || colTypeUpper.includes('VARCHAR');
     const uqConstraint = uniqueConstraintsMap[col];
     const isUnique = !!uqConstraint;
 
@@ -476,20 +631,19 @@ async function renderSchemaView() {
     const fkInfo = foreignKeysMap[col];
 
     tr.innerHTML = `
-      <td><strong>${col}</strong> ${isPk ? '<span class="badge badge-pk">PK</span>' : ''}</td>
-      <td><span class="badge">${c.TYPE_NAME}</span></td>
+      <td><strong>${escapeHtml(col)}</strong> ${isPk ? '<span class="badge badge-pk">PK</span>' : ''}</td>
+      <td><span class="badge">${escapeHtml(c.TYPE_NAME)}</span></td>
       
-      <td>
-        ${canChangeLength && !isPk && !isAudit
-          ? `<button class="secondary" style="padding: 2px 7px; font-size: 11px;" onclick="alterColumnLength('${col}', '${c.TYPE_NAME}', ${c.CHARACTER_MAXIMUM_LENGTH || 255})">
-               長度: ${c.CHARACTER_MAXIMUM_LENGTH || '-'} ✎
-             </button>`
-          : (c.CHARACTER_MAXIMUM_LENGTH || '-')}
-      </td>
-
+		<td>
+		  ${canChangeLength && !isPk && !isAudit
+			? `<button class="secondary" style="padding: 2px 7px; font-size: 11px;" onclick="alterColumnLength('${escapeJs(col)}', '${escapeJs(c.TYPE_NAME)}', ${c.CHARACTER_MAXIMUM_LENGTH || 255})">
+				 長度: ${c.CHARACTER_MAXIMUM_LENGTH || '-'} ✎
+			   </button>`
+			: (c.CHARACTER_MAXIMUM_LENGTH || '-')}
+		</td>
       <td>
         ${!isPk && !isAudit
-          ? `<button class="secondary" style="padding: 2px 7px; font-size: 11px;" onclick="alterColumnDefault('${col}', '${escapeJs(c.COLUMN_DEFAULT || '')}')">
+          ? `<button class="secondary" style="padding: 2px 7px; font-size: 11px;" onclick="alterColumnDefault('${escapeJs(col)}', '${escapeJs(c.COLUMN_DEFAULT || '')}')">
                ${c.COLUMN_DEFAULT ? escapeHtml(c.COLUMN_DEFAULT) : '無 (設定) ✎'}
              </button>`
           : (c.COLUMN_DEFAULT ? escapeHtml(c.COLUMN_DEFAULT) : '-')}
@@ -497,8 +651,8 @@ async function renderSchemaView() {
 
       <td style="text-align: center;">
         ${!isPk && !isAudit
-          ? `<button style="padding: 2px 8px; font-size: 11px; background: ${isNullable ? '#0284c7' : '#e11d48'};" 
-                     onclick="toggleNullable('${col}', ${isNullable})">
+          ? `<button style="padding: 2px 8px; font-size: 11px; background: ${isNullable ? '#0284c7' : '#e11d48'}; color:#fff; border:none; border-radius:4px; cursor:pointer;" 
+                     onclick="toggleNullable('${escapeJs(col)}',${isNullable})">
                ${isNullable ? 'YES (允許)' : 'NO (必填)'}
              </button>`
           : (isNullable ? 'YES' : 'NO')}
@@ -507,7 +661,7 @@ async function renderSchemaView() {
       <td style="text-align: center;">
         ${!isPk && !isAudit
           ? `<button class="${isUnique ? 'purple' : 'secondary'}" style="padding: 2px 8px; font-size: 11px;" 
-                     onclick="toggleUnique('${col}', ${isUnique}, '${uqConstraint || ''}')">
+                     onclick="toggleUnique('${escapeJs(col)}', ${isUnique}, '${escapeJs(uqConstraint || '')}')">
                ${isUnique ? 'YES (唯一值)' : 'NO (一般)'}
              </button>`
           : (isPk ? '<span class="badge badge-pk">PK 固有</span>' : '-')}
@@ -516,42 +670,35 @@ async function renderSchemaView() {
       <td style="text-align: center;">
         ${!isPk && !isUnique && !isAudit
           ? `<button class="${hasIndex ? 'success' : 'secondary'}" style="padding: 2px 8px; font-size: 11px;" 
-                     onclick="toggleIndex('${col}', ${hasIndex}, '${idxName || ''}')">
+                     onclick="toggleIndex('${escapeJs(col)}', ${hasIndex}, '${escapeJs(idxName || '')}')">
                ${hasIndex ? 'YES (已建)' : 'NO (建立)'}
              </button>`
           : (hasIndex ? 'YES' : '-')}
       </td>
 
       <td>
-        ${!isPk && !isAudit
-          ? (fkInfo
-              ? `<div>
-                   <span class="badge badge-fk" title="FK 約束: ${fkInfo.constraintName}">→ ${fkInfo.pkTable}.${fkInfo.pkCol}</span>
-                 </div>`
-              : '-')
+        ${fkInfo
+          ? `<div><span class="badge badge-fk" title="FK 約束: ${escapeHtml(fkInfo.constraintName)}">→ ${escapeHtml(fkInfo.pkTable)}.${escapeHtml(fkInfo.pkCol)}</span></div>`
           : '-'}
       </td>
 
       <td style="text-align: center;">
-        ${!isPk && !isAudit ? `<button class="danger" style="padding: 2px 6px; font-size: 11px;" onclick="dropColumn('${col}')">刪除</button>` : '-'}
+        ${!isPk && !isAudit ? `<button class="danger" style="padding: 2px 6px; font-size: 11px;" onclick="dropColumn('${escapeJs(col)}')">刪除</button>` : '-'}
       </td>
     `;
     tbody.appendChild(tr);
   });
 }
 
-// ==========================================
-// 2.3 單一 Table 原生 DDL 輸出
-// ==========================================
 async function loadTableDDL() {
   const textarea = document.getElementById('ddl-textarea');
+  if (!textarea) return;
+
   try {
-    const sql = `SCRIPT NODATA NOSETTINGS`;
-    const res = await dbQuery(sql);
-    
+    const res = await dbQuery(`SCRIPT NODATA NOSETTINGS`);
     const currentTableUpper = currentTable.toUpperCase();
     const ddlLines = res
-      .map(r => r.SCRIPT || r.script)
+      .map(r => r.SCRIPT || Object.values(r)[0])
       .filter(stmt => {
         if (!stmt) return false;
         const s = stmt.toUpperCase();
@@ -561,7 +708,7 @@ async function loadTableDDL() {
     if (ddlLines.length > 0) {
       textarea.value = ddlLines.join('\n\n');
     } else {
-      textarea.value = `-- 未能取得 ${currentTable} 的 DDL 腳本`;
+      textarea.value = `-- 未能取得資料表 ${currentTable} 的原生 DDL 定義`;
     }
   } catch (err) {
     textarea.value = `-- 產生 DDL 失敗: ${err.message}`;
@@ -570,47 +717,65 @@ async function loadTableDDL() {
 
 function copyDDL() {
   const textarea = document.getElementById('ddl-textarea');
+  if (!textarea) return;
   textarea.select();
   navigator.clipboard.writeText(textarea.value).then(() => {
-    alert('DDL SQL 語句已複製到剪貼簿！');
+    alert('DDL SQL 語句已成功複製至剪貼簿！');
   }).catch(err => {
-    alert('複製失敗，請手動複製: ' + err);
+    alert('複製失敗，請手動全選複製: ' + err);
   });
 }
 
 // ==========================================
-// 3. 批次匯入 (Excel 複製貼上)
+// 5. 批次匯入 (Excel 複製貼上與欄位映射)
 // ==========================================
 let parsedExcelData = [];
 let parsedColCount = 0;
 
 function openBatchInsertModal() {
   if (!currentTable || isAuditLogTable()) return;
-  document.getElementById('batch-modal-table-name').textContent = currentTable;
-  document.getElementById('batch-paste-textarea').value = '';
-  document.getElementById('batch-paste-stat').textContent = '尚未貼入任何資料';
-  document.getElementById('batch-preview-head').innerHTML = '';
-  document.getElementById('batch-preview-body').innerHTML = '<tr><td style="text-align: center; color: #94a3b8; padding: 20px;">請先於上方貼上 Excel 資料</td></tr>';
-  document.getElementById('batch-submit-btn').disabled = true;
-  document.getElementById('batch-import-status').textContent = '';
-  document.getElementById('batch-insert-modal').style.display = 'flex';
+  const nameSpan = document.getElementById('batch-modal-table-name');
+  if (nameSpan) nameSpan.textContent = currentTable;
+
+  const textarea = document.getElementById('batch-paste-textarea');
+  const stat = document.getElementById('batch-paste-stat');
+  const head = document.getElementById('batch-preview-head');
+  const body = document.getElementById('batch-preview-body');
+  const submitBtn = document.getElementById('batch-submit-btn');
+  const statusEl = document.getElementById('batch-import-status');
+
+  if (textarea) textarea.value = '';
+  if (stat) stat.textContent = '尚未貼入任何資料';
+  if (head) head.innerHTML = '';
+  if (body) body.innerHTML = '<tr><td style="text-align: center; color: #94a3b8; padding: 20px;">請先於上方貼上 Excel 資料</td></tr>';
+  if (submitBtn) submitBtn.disabled = true;
+  if (statusEl) statusEl.textContent = '';
+
+  const modal = document.getElementById('batch-insert-modal');
+  if (modal) modal.style.display = 'flex';
 }
 
 function closeBatchInsertModal() {
-  document.getElementById('batch-insert-modal').style.display = 'none';
+  const modal = document.getElementById('batch-insert-modal');
+  if (modal) modal.style.display = 'none';
 }
 
 function parseExcelPasteData() {
-  const raw = document.getElementById('batch-paste-textarea').value.trim();
-  const hasHeader = document.getElementById('batch-has-header').checked;
+  const textarea = document.getElementById('batch-paste-textarea');
   const statEl = document.getElementById('batch-paste-stat');
   const submitBtn = document.getElementById('batch-submit-btn');
+  const hasHeaderEl = document.getElementById('batch-has-header');
+
+  const raw = textarea ? textarea.value.trim() : '';
+  const hasHeader = hasHeaderEl ? hasHeaderEl.checked : true;
 
   if (!raw) {
-    statEl.textContent = '尚未貼入任何資料';
-    document.getElementById('batch-preview-head').innerHTML = '';
-    document.getElementById('batch-preview-body').innerHTML = '<tr><td style="text-align: center; color: #94a3b8; padding: 20px;">請先於上方貼上 Excel 資料</td></tr>';
-    submitBtn.disabled = true;
+    if (statEl) statEl.textContent = '尚未貼入任何資料';
+    const head = document.getElementById('batch-preview-head');
+    const body = document.getElementById('batch-preview-body');
+    if (head) head.innerHTML = '';
+    if (body) body.innerHTML = '<tr><td style="text-align: center; color: #94a3b8; padding: 20px;">請先於上方貼上 Excel 資料</td></tr>';
+    if (submitBtn) submitBtn.disabled = true;
     parsedExcelData = [];
     return;
   }
@@ -632,15 +797,16 @@ function parseExcelPasteData() {
   }
 
   parsedExcelData = dataRows;
-  statEl.textContent = `成功解析：共偵測到 ${dataRows.length} 筆資料記錄，每筆包含 ${parsedColCount} 個欄位。`;
+  if (statEl) statEl.textContent = `成功解析：共偵測到 ${dataRows.length} 筆資料記錄，每筆包含 ${parsedColCount} 個欄位。`;
 
   renderBatchMappingAndPreview(headerRow, dataRows);
-  submitBtn.disabled = dataRows.length === 0;
+  if (submitBtn) submitBtn.disabled = dataRows.length === 0;
 }
 
 function renderBatchMappingAndPreview(headerRow, dataRows) {
   const thead = document.getElementById('batch-preview-head');
   const tbody = document.getElementById('batch-preview-body');
+  if (!thead || !tbody) return;
   thead.innerHTML = '';
   tbody.innerHTML = '';
 
@@ -649,7 +815,7 @@ function renderBatchMappingAndPreview(headerRow, dataRows) {
   let trMapping = '<tr><th style="width: 50px; text-align: center;">列號</th>';
   for (let i = 0; i < parsedColCount; i++) {
     const excelColHeader = headerRow && headerRow[i] ? headerRow[i] : `Excel 欄位 ${i + 1}`;
-    
+
     let matchedColName = '';
     if (headerRow && headerRow[i]) {
       const rawHeaderName = headerRow[i].toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -665,7 +831,7 @@ function renderBatchMappingAndPreview(headerRow, dataRows) {
     selectHtml += '<option value="__IGNORE__">(忽略不匯入)</option>';
     targetCols.forEach(c => {
       const isSelected = c.COLUMN_NAME === matchedColName ? 'selected' : '';
-      selectHtml += `<option value="${c.COLUMN_NAME}" ${isSelected}>${c.COLUMN_NAME} (${c.TYPE_NAME})</option>`;
+      selectHtml += `<option value="${escapeHtml(c.COLUMN_NAME)}" ${isSelected}>${escapeHtml(c.COLUMN_NAME)} (${escapeHtml(c.TYPE_NAME)})</option>`;
     });
     selectHtml += '</select>';
 
@@ -713,7 +879,7 @@ async function submitBatchInsert() {
 
   const hasDuplicate = new Set(activeMappings).size !== activeMappings.length;
   if (hasDuplicate) {
-    alert('多個 Excel 欄位映射到了同一個資料庫欄位，請修正後再試！');
+    alert('偵測到多個 Excel 欄位映射到了同一個資料庫欄位，請修正後再試！');
     return;
   }
 
@@ -721,14 +887,16 @@ async function submitBatchInsert() {
 
   const submitBtn = document.getElementById('batch-submit-btn');
   const statusEl = document.getElementById('batch-import-status');
-  submitBtn.disabled = true;
-  statusEl.style.color = 'var(--primary)';
-  statusEl.textContent = '正在寫入資料庫，請稍候...';
+  if (submitBtn) submitBtn.disabled = true;
+  if (statusEl) {
+    statusEl.style.color = 'var(--primary)';
+    statusEl.textContent = '正在寫入資料庫，請稍候...';
+  }
 
   const colMetaMap = {};
   tableColumns.forEach(c => {
     colMetaMap[c.COLUMN_NAME] = {
-      type: c.TYPE_NAME.toUpperCase(),
+      type: (c.TYPE_NAME || 'VARCHAR').toUpperCase(),
       nullable: c.IS_NULLABLE === 'YES',
       maxLen: c.CHARACTER_MAXIMUM_LENGTH
     };
@@ -776,7 +944,7 @@ async function submitBatchInsert() {
 
       await dbExecute(sql);
       totalSuccess += chunk.length;
-      statusEl.textContent = `已寫入 ${totalSuccess} / ${parsedExcelData.length} 筆...`;
+      if (statusEl) statusEl.textContent = `已寫入 ${totalSuccess} / ${parsedExcelData.length} 筆...`;
     }
 
     setStatus(`成功批次匯入 ${totalSuccess} 筆記錄！`);
@@ -784,64 +952,73 @@ async function submitBatchInsert() {
     closeBatchInsertModal();
     loadCurrentTable();
   } catch (err) {
-    statusEl.style.color = 'var(--danger)';
-    statusEl.textContent = `匯入中斷: ${err.message}`;
+    if (statusEl) {
+      statusEl.style.color = 'var(--danger)';
+      statusEl.textContent = `匯入中斷: ${err.message}`;
+    }
     alert(`批次匯入失敗 (已成功寫入 ${totalSuccess} 筆)：\n${err.message}`);
   } finally {
-    submitBtn.disabled = false;
+    if (submitBtn) submitBtn.disabled = false;
   }
 }
 
 // ==========================================
-// 4. 全 DB 架構檢視與匯出
+// 6. 全 DB 架構檢視與匯出 (Full DB Schema)
 // ==========================================
 let fullSchemaCurrentTab = 'ui';
 let fullDbDdlText = '';
 let fullDbMarkdownText = '';
 
 async function openFullDbSchemaModal() {
-  document.getElementById('full-schema-modal').style.display = 'flex';
+  const modal = document.getElementById('full-schema-modal');
+  if (modal) modal.style.display = 'flex';
   switchFullSchemaTab('ui');
   await loadFullDbSchemaData();
 }
 
 function closeFullDbSchemaModal() {
-  document.getElementById('full-schema-modal').style.display = 'none';
+  const modal = document.getElementById('full-schema-modal');
+  if (modal) modal.style.display = 'none';
 }
 
 function switchFullSchemaTab(tab) {
   fullSchemaCurrentTab = tab;
-  document.getElementById('btn-schema-ui').className = 'tab-btn ' + (tab === 'ui' ? 'active' : '');
-  document.getElementById('btn-schema-ddl').className = 'tab-btn ' + (tab === 'ddl' ? 'active' : '');
-  document.getElementById('btn-schema-md').className = 'tab-btn ' + (tab === 'md' ? 'active' : '');
+  const btnUI = document.getElementById('btn-schema-ui');
+  const btnDDL = document.getElementById('btn-schema-ddl');
+  const btnMD = document.getElementById('btn-schema-md');
+
+  if (btnUI) btnUI.className = 'tab-btn ' + (tab === 'ui' ? 'active' : '');
+  if (btnDDL) btnDDL.className = 'tab-btn ' + (tab === 'ddl' ? 'active' : '');
+  if (btnMD) btnMD.className = 'tab-btn ' + (tab === 'md' ? 'active' : '');
 
   const uiBox = document.getElementById('full-schema-content-ui');
   const textBox = document.getElementById('full-schema-content-text');
   const textarea = document.getElementById('full-schema-textarea');
 
   if (tab === 'ui') {
-    uiBox.style.display = 'block';
-    textBox.style.display = 'none';
+    if (uiBox) uiBox.style.display = 'block';
+    if (textBox) textBox.style.display = 'none';
   } else if (tab === 'ddl') {
-    uiBox.style.display = 'none';
-    textBox.style.display = 'block';
-    textarea.value = fullDbDdlText || '-- 正在提取 DDL...';
+    if (uiBox) uiBox.style.display = 'none';
+    if (textBox) textBox.style.display = 'block';
+    if (textarea) textarea.value = fullDbDdlText || '-- 正在提取全庫 DDL...';
   } else if (tab === 'md') {
-    uiBox.style.display = 'none';
-    textBox.style.display = 'block';
-    textarea.value = fullDbMarkdownText || '<!-- 正在編譯 Markdown... -->';
+    if (uiBox) uiBox.style.display = 'none';
+    if (textBox) textBox.style.display = 'block';
+    if (textarea) textarea.value = fullDbMarkdownText || '<!-- 正在編譯 Markdown... -->';
   }
 }
 
 async function loadFullDbSchemaData() {
   const container = document.getElementById('full-schema-cards-container');
-  container.innerHTML = '<div style="text-align:center; padding:30px; color:#64748b;">正在全面檢索資料庫結構與約束...</div>';
+  if (!container) return;
+  container.innerHTML = '<div style="text-align:center; padding:30px; color:#64748b;">正在全面檢索資料庫結構與約束中繼資料...</div>';
 
   try {
     const colsSql = `
       SELECT TABLE_NAME, COLUMN_NAME, TYPE_NAME, CHARACTER_MAXIMUM_LENGTH, IS_NULLABLE, COLUMN_DEFAULT, ORDINAL_POSITION
       FROM INFORMATION_SCHEMA.COLUMNS
-      WHERE TABLE_SCHEMA = 'PUBLIC'
+      WHERE UPPER(TABLE_SCHEMA) = 'PUBLIC'
       ORDER BY TABLE_NAME, ORDINAL_POSITION
     `;
     const allCols = await dbQuery(colsSql);
@@ -849,20 +1026,19 @@ async function loadFullDbSchemaData() {
     const constrSql = `
       SELECT TABLE_NAME, CONSTRAINT_NAME, CONSTRAINT_TYPE, COLUMN_LIST
       FROM INFORMATION_SCHEMA.CONSTRAINTS
-      WHERE TABLE_SCHEMA = 'PUBLIC'
+      WHERE UPPER(TABLE_SCHEMA) = 'PUBLIC'
     `;
     const allConstraints = await dbQuery(constrSql);
 
     const fkSql = `
       SELECT FKTABLE_NAME, FKCOLUMN_NAME, PKTABLE_NAME, PKCOLUMN_NAME, FK_NAME
       FROM INFORMATION_SCHEMA.CROSS_REFERENCES
-      WHERE FKTABLE_SCHEMA = 'PUBLIC'
+      WHERE UPPER(FKTABLE_SCHEMA) = 'PUBLIC'
     `;
     const allFks = await dbQuery(fkSql);
 
-    const ddlSql = `SCRIPT NODATA NOSETTINGS`;
-    const ddlRes = await dbQuery(ddlSql);
-    fullDbDdlText = ddlRes.map(r => r.SCRIPT || r.script).join('\n');
+    const ddlRes = await dbQuery(`SCRIPT NODATA NOSETTINGS`);
+    fullDbDdlText = ddlRes.map(r => r.SCRIPT || Object.values(r)[0]).join('\n');
 
     const tableMap = {};
     allCols.forEach(col => {
@@ -875,7 +1051,7 @@ async function loadFullDbSchemaData() {
 
     Object.keys(tableMap).sort().forEach(tbl => {
       const cols = tableMap[tbl];
-      
+
       const pkList = allConstraints
         .filter(c => c.TABLE_NAME === tbl && c.CONSTRAINT_TYPE === 'PRIMARY KEY')
         .flatMap(c => (c.COLUMN_LIST || '').split(',').map(s => s.trim()));
@@ -897,14 +1073,14 @@ async function loadFullDbSchemaData() {
 
         rowsHtml += `
           <tr>
-            <td style="font-weight:600;">${c.COLUMN_NAME}</td>
-            <td><span class="badge">${c.TYPE_NAME}${c.CHARACTER_MAXIMUM_LENGTH ? `(${c.CHARACTER_MAXIMUM_LENGTH})` : ''}</span></td>
+            <td style="font-weight:600;">${escapeHtml(c.COLUMN_NAME)}</td>
+            <td><span class="badge">${escapeHtml(c.TYPE_NAME)}${c.CHARACTER_MAXIMUM_LENGTH ? `(${c.CHARACTER_MAXIMUM_LENGTH})` : ''}</span></td>
             <td>${c.IS_NULLABLE === 'YES' ? '<span style="color:#64748b;">YES</span>' : '<span style="color:var(--danger); font-weight:bold;">NOT NULL</span>'}</td>
             <td>${c.COLUMN_DEFAULT ? `<code>${escapeHtml(c.COLUMN_DEFAULT)}</code>` : '<span style="color:#cbd5e1;">-</span>'}</td>
             <td>
               ${isPk ? '<span class="badge badge-pk">PRIMARY KEY</span> ' : ''}
               ${isUq ? '<span class="badge badge-uq">UNIQUE</span> ' : ''}
-              ${fk ? `<span class="badge badge-fk">FK → ${fk.PKTABLE_NAME}.${fk.PKCOLUMN_NAME}</span>` : ''}
+              ${fk ? `<span class="badge badge-fk">FK → ${escapeHtml(fk.PKTABLE_NAME)}.${escapeHtml(fk.PKCOLUMN_NAME)}</span>` : ''}
               ${!isPk && !isUq && !fk ? '<span style="color:#cbd5e1;">-</span>' : ''}
             </td>
           </tr>
@@ -913,7 +1089,7 @@ async function loadFullDbSchemaData() {
 
       card.innerHTML = `
         <div class="schema-table-card-header">
-          <span>📋 資料表：<span style="color:var(--primary); font-size:15px;">${tbl}</span> (${cols.length} 欄位)</span>
+          <span>📋 資料表：<span style="color:var(--primary); font-size:15px;">${escapeHtml(tbl)}</span> (${cols.length} 欄位)</span>
         </div>
         <table>
           <thead>
@@ -937,7 +1113,7 @@ async function loadFullDbSchemaData() {
         const isPk = pkList.includes(c.COLUMN_NAME);
         const isUq = uqList.includes(c.COLUMN_NAME);
         const fk = tblFks.find(f => f.FKCOLUMN_NAME === c.COLUMN_NAME);
-        let badges = [];
+        const badges = [];
         if (isPk) badges.push('**PK**');
         if (isUq) badges.push('**UQ**');
         if (fk) badges.push(`FK → ${fk.PKTABLE_NAME}.${fk.PKCOLUMN_NAME}`);
@@ -949,13 +1125,22 @@ async function loadFullDbSchemaData() {
 
     fullDbMarkdownText = mdOutput;
 
+    // 若使用者停留在 DDL 或 MD 標籤，同步重新整理文字內容
+    if (fullSchemaCurrentTab === 'ddl') {
+      const textarea = document.getElementById('full-schema-textarea');
+      if (textarea) textarea.value = fullDbDdlText;
+    } else if (fullSchemaCurrentTab === 'md') {
+      const textarea = document.getElementById('full-schema-textarea');
+      if (textarea) textarea.value = fullDbMarkdownText;
+    }
+
   } catch (err) {
-    container.innerHTML = `<div style="color:var(--danger); padding:20px;">載入全資料庫結構失敗: ${err.message}</div>`;
+    container.innerHTML = `<div style="color:var(--danger); padding:20px;">載入全資料庫結構失敗: ${escapeHtml(err.message)}</div>`;
   }
 }
 
 function copyFullSchemaContent() {
-  let content = (fullSchemaCurrentTab === 'ddl') ? fullDbDdlText : fullDbMarkdownText;
+  const content = (fullSchemaCurrentTab === 'ddl') ? fullDbDdlText : fullDbMarkdownText;
   navigator.clipboard.writeText(content).then(() => {
     alert('已成功將資料庫架構內容複製至剪貼簿！');
   }).catch(err => {
@@ -964,10 +1149,10 @@ function copyFullSchemaContent() {
 }
 
 function downloadFullSchemaFile() {
-  let content = (fullSchemaCurrentTab === 'ddl') ? fullDbDdlText : fullDbMarkdownText;
+  const content = (fullSchemaCurrentTab === 'ddl') ? fullDbDdlText : fullDbMarkdownText;
   const now = new Date();
   const pad = (n) => String(n).padStart(2, '0');
-  const timeStr = `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}`;
+  const timeStr = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`;
   const ext = (fullSchemaCurrentTab === 'ddl') ? 'sql' : 'md';
   const fileName = `H2_Database_Schema_${timeStr}.${ext}`;
 
@@ -983,18 +1168,21 @@ function downloadFullSchemaFile() {
 }
 
 // ==========================================
-// 5. 新增單筆記錄
+// 7. 單筆記錄新增 (Single Insert Modal)
 // ==========================================
 function openInsertModal() {
   if (!currentTable || isAuditLogTable()) return;
-  document.getElementById('modal-table-name').textContent = currentTable;
+  const nameEl = document.getElementById('modal-table-name');
+  if (nameEl) nameEl.textContent = currentTable;
+
   const container = document.getElementById('insert-form-container');
+  if (!container) return;
   container.innerHTML = '';
 
   tableColumns.forEach(c => {
     const isPk = c.COLUMN_NAME === currentPrimaryKey;
     const isNullable = c.IS_NULLABLE === 'YES';
-    const type = c.TYPE_NAME.toUpperCase();
+    const type = (c.TYPE_NAME || '').toUpperCase();
     const maxLen = c.CHARACTER_MAXIMUM_LENGTH;
     const isUnique = !!uniqueConstraintsMap[c.COLUMN_NAME];
     const hasFk = !!foreignKeysMap[c.COLUMN_NAME];
@@ -1002,14 +1190,14 @@ function openInsertModal() {
     const group = document.createElement('div');
     group.className = 'form-group';
 
-    let hints = [];
+    const hints = [];
     hints.push(`型態: ${type}`);
-    if (!isNullable) hints.push('<span class="req-mark">* 必填 (不允許 NULL)</span>');
+    if (!isNullable && !isPk) hints.push('<span class="req-mark">* 必填 (不允許 NULL)</span>');
     else hints.push('允許 NULL');
-    
+
     if (c.COLUMN_DEFAULT) hints.push(`預設值: ${escapeHtml(c.COLUMN_DEFAULT)}`);
     if (isUnique) hints.push('<span style="color:var(--purple); font-weight:bold;">[UNIQUE 唯一值]</span>');
-    if (hasFk) hints.push(`<span style="color:var(--amber); font-weight:bold;">[FK → ${foreignKeysMap[c.COLUMN_NAME].pkTable}]</span>`);
+    if (hasFk) hints.push(`<span style="color:var(--amber); font-weight:bold;">[FK → ${escapeHtml(foreignKeysMap[c.COLUMN_NAME].pkTable)}]</span>`);
     if (maxLen) hints.push(`最長: <strong>${maxLen}</strong> 字元`);
 
     let inputHtml = '';
@@ -1018,64 +1206,68 @@ function openInsertModal() {
     } else if (type.includes('TIMESTAMP')) {
       inputHtml = `
         <div class="date-input-wrap">
-          <input type="datetime-local" step="1" data-col="${c.COLUMN_NAME}" data-type="TIMESTAMP" data-nullable="${isNullable}">
+          <input type="datetime-local" step="1" data-col="${escapeHtml(c.COLUMN_NAME)}" data-type="TIMESTAMP" data-nullable="${isNullable}">
           <button type="button" class="clear-btn" onclick="clearNativeInput(this)">清除</button>
         </div>
       `;
     } else if (type.includes('DATE')) {
       inputHtml = `
         <div class="date-input-wrap">
-          <input type="date" data-col="${c.COLUMN_NAME}" data-type="DATE" data-nullable="${isNullable}">
+          <input type="date" data-col="${escapeHtml(c.COLUMN_NAME)}" data-type="DATE" data-nullable="${isNullable}">
           <button type="button" class="clear-btn" onclick="clearNativeInput(this)">清除</button>
         </div>
       `;
     } else if (type === 'BOOLEAN') {
       inputHtml = `
-        <select data-col="${c.COLUMN_NAME}" data-type="${type}" data-nullable="${isNullable}">
+        <select data-col="${escapeHtml(c.COLUMN_NAME)}" data-type="${type}" data-nullable="${isNullable}">
           ${isNullable ? '<option value="__NULL__">-- NULL (預設空值) --</option>' : ''}
           <option value="TRUE">TRUE (是)</option>
           <option value="FALSE" selected>FALSE (否)</option>
         </select>
       `;
     } else if (type === 'CLOB') {
-      inputHtml = `<textarea rows="3" data-col="${c.COLUMN_NAME}" data-type="${type}" data-nullable="${isNullable}" style="padding:8px; border:1px solid var(--border); border-radius:6px;"></textarea>`;
+      inputHtml = `<textarea rows="3" data-col="${escapeHtml(c.COLUMN_NAME)}" data-type="${type}" data-nullable="${isNullable}" style="padding:8px; border:1px solid var(--border); border-radius:6px;"></textarea>`;
     } else {
       const lenAttr = maxLen ? `maxlength="${maxLen}"` : '';
       const placeholder = !isNullable ? '必填欄位 (不可留空)' : '若留空將寫入 NULL 或預設值';
-      inputHtml = `<input type="text" data-col="${c.COLUMN_NAME}" data-type="${type}" data-nullable="${isNullable}" data-maxlen="${maxLen || ''}" ${lenAttr} placeholder="${placeholder}">`;
+      inputHtml = `<input type="text" data-col="${escapeHtml(c.COLUMN_NAME)}" data-type="${type}" data-nullable="${isNullable}" data-maxlen="${maxLen || ''}" ${lenAttr} placeholder="${placeholder}">`;
     }
 
     group.innerHTML = `
-      <label class="form-label">${c.COLUMN_NAME} ${!isNullable && !isPk ? '<span class="req-mark">*</span>' : ''}</label>
+      <label class="form-label">${escapeHtml(c.COLUMN_NAME)} ${!isNullable && !isPk ? '<span class="req-mark">*</span>' : ''}</label>
       ${inputHtml}
       <div class="form-hint">${hints.join(' | ')}</div>
     `;
     container.appendChild(group);
   });
 
-  document.getElementById('insert-modal').style.display = 'flex';
+  const modal = document.getElementById('insert-modal');
+  if (modal) modal.style.display = 'flex';
 }
 
 function clearNativeInput(btn) {
-  btn.previousElementSibling.value = '';
+  if (btn && btn.previousElementSibling) {
+    btn.previousElementSibling.value = '';
+  }
 }
 
 function closeInsertModal() {
-  document.getElementById('insert-modal').style.display = 'none';
+  const modal = document.getElementById('insert-modal');
+  if (modal) modal.style.display = 'none';
 }
 
 async function submitInsert() {
   if (isAuditLogTable()) return;
   const inputs = document.querySelectorAll('#insert-form-container [data-col]');
-  let colNames = [];
-  let colValues = [];
+  const colNames = [];
+  const colValues = [];
 
   for (const el of inputs) {
     const col = el.dataset.col;
     const type = el.dataset.type;
     const isNullable = el.dataset.nullable === 'true';
     const maxLen = el.dataset.maxlen ? parseInt(el.dataset.maxlen, 10) : null;
-    let val = el.value.trim();
+    const val = el.value.trim();
 
     if (!isNullable && (val === '' || val === '__NULL__')) {
       alert(`欄位 [${col}] 為必填欄位，不允許 NULL！`);
@@ -1100,7 +1292,7 @@ async function submitInsert() {
       if (formattedTs.length === 16) formattedTs += ':00';
       colNames.push(`"${col}"`);
       colValues.push(`'${formattedTs}'`);
-    } else if (['INT', 'BIGINT', 'SMALLINT', 'DECIMAL', 'DOUBLE'].includes(type)) {
+    } else if (['INT', 'BIGINT', 'SMALLINT', 'DECIMAL', 'DOUBLE', 'NUMERIC'].includes(type)) {
       if (isNaN(val)) {
         alert(`欄位 [${col}] 必須為數值型態！`);
         el.focus();
@@ -1132,20 +1324,31 @@ async function submitInsert() {
 }
 
 // ==========================================
-// 6. 結構修改 (長度 / NULL / 欄位變更 / DDL)
+// 8. 結構修改 (Schema Modifications & DDL)
 // ==========================================
 async function alterColumnLength(colName, typeName, currentLen) {
   if (isAuditLogTable()) return;
-  const newLen = prompt(`請輸入欄位 [${colName}] 的新長度：`, currentLen);
-  if (!newLen || isNaN(newLen)) return;
 
-  const sql = `ALTER TABLE "${currentTable}" ALTER COLUMN "${colName}" ${typeName}(${parseInt(newLen, 10)})`;
+  const promptVal = prompt(`請輸入欄位 [${colName}] (${typeName}) 的新長度：`, currentLen || 255);
+  if (promptVal === null) return; // 使用者按取消
+
+  const newLen = parseInt(promptVal.trim(), 10);
+  if (isNaN(newLen) || newLen <= 0) {
+    alert('長度必須為大於 0 的正整數！');
+    return;
+  }
+
+  // H2 標準語法：ALTER TABLE "表名" ALTER COLUMN "欄位名" 型態(長度)
+  const sql = `ALTER TABLE "${currentTable}" ALTER COLUMN "${colName}" ${typeName}(${newLen})`;
+
   try {
+    setStatus(`正在更新 [${colName}] 長度為 ${newLen}...`);
     await dbExecute(sql);
-    setStatus(`成功將 [${colName}] 長度修改為: ${newLen}`);
+    setStatus(`✅ 成功將 [${colName}] 長度修改為: ${newLen}`);
     loadCurrentTable();
   } catch (err) {
-    alert('修改長度失敗: ' + err.message);
+    alert(`修改長度失敗: ${err.message}`);
+    setStatus(`❌ 修改失敗: ${err.message}`, true);
   }
 }
 
@@ -1170,7 +1373,7 @@ async function alterColumnDefault(colName, currentDefault) {
   if (promptVal === null) return;
   const trimmed = promptVal.trim();
 
-  let sql = (trimmed.toUpperCase() === 'DROP' || trimmed === '')
+  const sql = (trimmed.toUpperCase() === 'DROP' || trimmed === '')
     ? `ALTER TABLE "${currentTable}" ALTER COLUMN "${colName}" DROP DEFAULT`
     : `ALTER TABLE "${currentTable}" ALTER COLUMN "${colName}" SET DEFAULT ${trimmed}`;
 
@@ -1185,7 +1388,7 @@ async function alterColumnDefault(colName, currentDefault) {
 
 async function toggleIndex(colName, hasIndex, existingIdxName) {
   if (isAuditLogTable()) return;
-  const sql = hasIndex 
+  const sql = hasIndex
     ? `DROP INDEX "${existingIdxName}"`
     : `CREATE INDEX "IDX_${currentTable}_${colName}" ON "${currentTable}" ("${colName}")`;
 
@@ -1220,15 +1423,21 @@ async function toggleUnique(colName, isCurrentlyUnique, existingConstraintName) 
 
 async function addColumn() {
   if (isAuditLogTable()) return;
-  const colName = document.getElementById('new-col-name').value.trim();
-  const colType = document.getElementById('new-col-type').value;
-  if (!colName) return;
+  const nameEl = document.getElementById('new-col-name');
+  const typeEl = document.getElementById('new-col-type');
+  const colName = nameEl ? nameEl.value.trim() : '';
+  const colType = typeEl ? typeEl.value : 'VARCHAR(255)';
+
+  if (!colName) {
+    alert('請輸入欲新增的欄位名稱！');
+    return;
+  }
 
   const sql = `ALTER TABLE "${currentTable}" ADD "${colName}" ${colType}`;
   try {
     await dbExecute(sql);
     setStatus(`成功新增欄位: ${colName}`);
-    document.getElementById('new-col-name').value = '';
+    if (nameEl) nameEl.value = '';
     loadCurrentTable();
   } catch (err) {
     alert('新增欄位失敗: ' + err.message);
@@ -1237,7 +1446,7 @@ async function addColumn() {
 
 async function dropColumn(colName) {
   if (isAuditLogTable()) return;
-  if (!confirm(`確定要刪除欄位 [${colName}] 嗎？這將永久刪除該欄位的所有資料！`)) return;
+  if (!confirm(`確定要刪除欄位 [${colName}] 嗎？此操作將永久抹除該欄位之資料！`)) return;
 
   const sql = `ALTER TABLE "${currentTable}" DROP COLUMN "${colName}"`;
   try {
@@ -1251,14 +1460,19 @@ async function dropColumn(colName) {
 
 async function executeCustomDDL() {
   if (isAuditLogTable()) return;
-  const sql = document.getElementById('custom-ddl').value.trim();
-  if (!sql) return;
-  if (!confirm(`即將執行自訂 DDL:\n${sql}\n確定繼續嗎？`)) return;
+  const ddlInput = document.getElementById('custom-ddl');
+  const sql = ddlInput ? ddlInput.value.trim() : '';
+  if (!sql) {
+    alert('請輸入自訂 DDL 語句！');
+    return;
+  }
+
+  if (!confirm(`即將執行自訂 DDL 語句：\n${sql}\n\n確定繼續嗎？`)) return;
 
   try {
     await dbExecute(sql);
-    setStatus('自訂 DDL 執行成功');
-    document.getElementById('custom-ddl').value = '';
+    setStatus('自訂 DDL 執行成功！');
+    if (ddlInput) ddlInput.value = '';
     loadCurrentTable();
   } catch (err) {
     alert('DDL 執行錯誤: ' + err.message);
@@ -1266,7 +1480,7 @@ async function executeCustomDDL() {
 }
 
 // ==========================================
-// 7. 單元格編輯 / 刪除列 / 清空表 / 備份
+// 9. 單元格編輯 / 刪除列 / 清空表 / 備份整庫
 // ==========================================
 async function editCell(td, pkVal, colName) {
   if (isAuditLogTable()) {
@@ -1274,23 +1488,30 @@ async function editCell(td, pkVal, colName) {
     return;
   }
 
-  const currentVal = td.textContent === 'NULL' ? '' : td.textContent;
-  const newVal = prompt(`修改 [${colName}] 的值 (留空確認代表空字串，輸入 NULL 設為空值)：`, currentVal);
+  const currentVal = td.textContent === 'NULL' ? '' : td.textContent.trim();
+  const newVal = prompt(`修改 [${colName}] 的值 (留空確認代表設為空字串，輸入 NULL 設為空值)：`, currentVal);
   if (newVal === null) return;
+
+  const pkCondition = isNaN(pkVal)
+    ? `"${currentPrimaryKey}" = '${pkVal.replace(/'/g, "''")}'`
+    : `"${currentPrimaryKey}" = ${pkVal}`;
 
   let sql = '';
   if (newVal.toUpperCase() === 'NULL') {
-    sql = `UPDATE "${currentTable}" SET "${colName}" = NULL WHERE "${currentPrimaryKey}" = ${pkVal}`;
+    sql = `UPDATE "${currentTable}" SET "${colName}" = NULL WHERE ${pkCondition}`;
   } else {
     const escaped = newVal.replace(/'/g, "''");
-    sql = `UPDATE "${currentTable}" SET "${colName}" = '${escaped}' WHERE "${currentPrimaryKey}" = ${pkVal}`;
+    sql = `UPDATE "${currentTable}" SET "${colName}" = '${escaped}' WHERE ${pkCondition}`;
   }
 
   try {
     await dbExecute(sql);
-    setStatus(`已更新 ${colName}`);
-    td.textContent = newVal.toUpperCase() === 'NULL' ? 'NULL' : newVal;
-    if (newVal.toUpperCase() === 'NULL') td.style.color = '#cbd5e1';
+    setStatus(`已成功更新欄位 [${colName}]！`);
+    if (newVal.toUpperCase() === 'NULL') {
+      td.innerHTML = '<span style="color:#cbd5e1; font-style:italic;">NULL</span>';
+    } else {
+      td.textContent = newVal;
+    }
   } catch (err) {
     alert('更新失敗: ' + err.message);
   }
@@ -1302,9 +1523,13 @@ async function deleteRow(pkVal) {
     return;
   }
 
-  if (!confirm(`確定要刪除主鍵值為 [${pkVal}] 的整筆資料嗎？`)) return;
+  if (!confirm(`確定要刪除主鍵值為 [${pkVal}] 的整筆記錄嗎？`)) return;
 
-  const sql = `DELETE FROM "${currentTable}" WHERE "${currentPrimaryKey}" = ${pkVal}`;
+  const pkCondition = isNaN(pkVal)
+    ? `"${currentPrimaryKey}" = '${pkVal.replace(/'/g, "''")}'`
+    : `"${currentPrimaryKey}" = ${pkVal}`;
+
+  const sql = `DELETE FROM "${currentTable}" WHERE ${pkCondition}`;
   try {
     await dbExecute(sql);
     setStatus(`已刪除記錄 PK: ${pkVal}`);
@@ -1316,56 +1541,123 @@ async function deleteRow(pkVal) {
 
 async function truncateTable() {
   if (isAuditLogTable()) {
-    alert('【安全違規】稽核表嚴禁清空！');
+    alert('【安全違規】稽核日誌表嚴禁清空！');
     return;
   }
   if (!currentTable) return;
-  const confirmText = prompt(`【危險操作】即將清空 [${currentTable}] 的所有資料！\n請在此輸入 table 名稱 "${currentTable}" 確認執行：`);
+
+  const confirmText = prompt(`⚠️【危險操作】即將清空 [${currentTable}] 的全部資料！\n請在此輸入資料表全名 "${currentTable}" 以確認執行：`);
   if (confirmText !== currentTable) {
-    alert('名稱輸入不一致，操作已取消');
+    alert('名稱輸入不一致，操作已取消。');
     return;
   }
 
   const sql = `DELETE FROM "${currentTable}"`;
   try {
     await dbExecute(sql);
-    setStatus(`已清空資料表 ${currentTable}`);
+    setStatus(`已成功清空資料表: ${currentTable}`);
     loadCurrentTable();
   } catch (err) {
     alert('清空失敗: ' + err.message);
   }
 }
 
+/**
+ * 整庫備份：直接透過 H2 SCRIPT 指令匯出 SQL 並於瀏覽器一鍵下載
+ */
 async function backupDatabase() {
-  const now = new Date();
-  const pad = (n) => String(n).padStart(2, '0');
-  const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-  
-  const defaultFileName = `D:/pm-server/backups/backup_${timestamp}.zip`;
-  const targetPath = prompt('請輸入備份檔案儲存路徑（伺服器本機路徑）：', defaultFileName);
-  if (!targetPath) return;
+  if (!confirm('📦 確定要備份整個資料庫嗎？系統將為您直接匯出包含完整 Schema 與 Data 的 H2 SQL 備份檔案。')) return;
 
-  setStatus('正在建立資料庫備份壓縮包，請稍候...');
-  const sql = `SCRIPT TO '${targetPath}' COMPRESSION ZIP`;
-
+  setStatus('正在編譯資料庫備份 SQL，請稍候...');
   try {
-    await dbQuery(sql);
-    setStatus(`備份成功！檔案已輸出至: ${targetPath}`);
-    alert(`【備份成功】\n檔案已產生在伺服器本機：\n${targetPath}`);
+    const res = await dbQuery('SCRIPT');
+    if (!res || res.length === 0) {
+      throw new Error('未取得任何備份指令');
+    }
+
+    const sqlLines = res.map(r => r.SCRIPT || Object.values(r)[0]).join('\n');
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const timeStr = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+    const fileName = `H2_Database_Backup_${timeStr}.sql`;
+
+    const blob = new Blob([sqlLines], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    setStatus(`✅ 資料庫備份成功！已下載 ${fileName}`);
+    alert(`【備份成功】\n資料庫備份檔案已成功下載：\n${fileName}`);
   } catch (err) {
     alert('備份失敗: ' + err.message);
-    setStatus('備份失敗', true);
+    setStatus('❌ 備份失敗: ' + err.message, true);
   }
 }
 
+// ==========================================
+// 10. 工具輔助函式 (Utility Functions)
+// ==========================================
 function escapeHtml(str) {
-  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
 
 function escapeJs(str) {
   if (!str) return '';
-  return String(str).replace(/'/g, "\\'").replace(/"/g, '\\"');
+  return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
+
+// ==========================================
+// 11. 全域匯出與初始化掛載 (Global Window Binding)
+// ==========================================
+window.loadTableList = loadTableList;
+window.loadCurrentTable = loadCurrentTable;
+window.onTableSelectChanged = onTableSelectChanged;
+window.switchTab = switchTab;
+window.handleSortClick = handleSortClick;
+window.onFilterChanged = onFilterChanged;
+window.onLimitChanged = onLimitChanged;
+window.clearAllFilters = clearAllFilters;
+window.editCell = editCell;
+window.deleteRow = deleteRow;
+window.truncateTable = truncateTable;
+window.backupDatabase = backupDatabase;
+window.copyDDL = copyDDL;
+
+window.openInsertModal = openInsertModal;
+window.closeInsertModal = closeInsertModal;
+window.submitInsert = submitInsert;
+window.clearNativeInput = clearNativeInput;
+
+window.openBatchInsertModal = openBatchInsertModal;
+window.closeBatchInsertModal = closeBatchInsertModal;
+window.parseExcelPasteData = parseExcelPasteData;
+window.submitBatchInsert = submitBatchInsert;
+
+window.openFullDbSchemaModal = openFullDbSchemaModal;
+window.closeFullDbSchemaModal = closeFullDbSchemaModal;
+window.switchFullSchemaTab = switchFullSchemaTab;
+window.copyFullSchemaContent = copyFullSchemaContent;
+window.downloadFullSchemaFile = downloadFullSchemaFile;
+
+window.alterColumnLength = alterColumnLength;
+window.toggleNullable = toggleNullable;
+window.alterColumnDefault = alterColumnDefault;
+window.toggleIndex = toggleIndex;
+window.toggleUnique = toggleUnique;
+window.addColumn = addColumn;
+window.dropColumn = dropColumn;
+window.executeCustomDDL = executeCustomDDL;
 
 document.addEventListener('DOMContentLoaded', () => {
   if (checkAdminAuth()) {

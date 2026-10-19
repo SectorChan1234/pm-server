@@ -6,7 +6,18 @@
 
 // Global Authentication State & Session Context
 const token = localStorage.getItem('pb_token') || sessionStorage.getItem('pb_token');
-const user = JSON.parse(localStorage.getItem('pb_user') || sessionStorage.getItem('pb_user') || '{}');
+const rawUser = JSON.parse(localStorage.getItem('pb_user') || sessionStorage.getItem('pb_user') || '{}');
+
+// 身分欄位雙向大小寫相容 (CamelCase 與 Snake_case 雙向對齊)
+const user = {
+    ...rawUser,
+    pk_t05: rawUser.pk_t05 || rawUser.pkT05,
+    pkT05: rawUser.pkT05 || rawUser.pk_t05,
+    st_right: rawUser.st_right || rawUser.stRight || '',
+    stRight: rawUser.stRight || rawUser.st_right || '',
+    name: rawUser.name || 'User',
+    email: rawUser.email || ''
+};
 
 // Project & Navigation Context State
 let userProjects = [];
@@ -30,8 +41,25 @@ function registerView(actionKey, handlerFn) {
 // 註冊首頁/系統架構說明視圖
 registerView('system-overview', renderSystemOverviewView);
 
-// 基礎身分守衛 (Route Guard)
-if (!token || !user.pk_t05) {
+// 基礎身分守衛 (Route Guard)：若未通過驗證，彈窗明確警示具體原因再跳轉
+const effectiveUserId = user.pk_t05 || user.pkT05;
+if (!token || !effectiveUserId) {
+    const missingItems = [];
+    if (!token) missingItems.push("Missing authentication token (pb_token)");
+    if (!effectiveUserId) missingItems.push("Missing user identifier (pk_t05 / pkT05)");
+
+    const diagnosticMsg = [
+        "⚠️【Portal Route Guard Intercepted】",
+        "System is redirecting back to index.html due to invalid session credentials:",
+        "",
+        `• Detected Reason: ${missingItems.join('; ')}`,
+        `• Stored Token: ${token ? (token.substring(0, 12) + '...') : 'null'}`,
+        `• User Data: ${JSON.stringify(rawUser)}`,
+        "",
+        "Click OK to return to sign-in page."
+    ].join('\n');
+
+    alert(diagnosticMsg);
     window.location.replace('/index.html');
 }
 
@@ -65,8 +93,8 @@ async function api(path, options = {}) {
     try {
         const res = await fetch(path, options);
         if (res.status === 401) {
-            alert('Your session has expired. Please sign in again.');
-            logout();
+            alert(`⚠️【Session Expired (HTTP 401)】\nAPI endpoint rejected request: ${path}\nRedirecting to index.html.`);
+            logout('API returned HTTP 401 Unauthorized from ' + path);
             return null;
         }
         const data = await res.json();
@@ -85,10 +113,16 @@ async function api(path, options = {}) {
     }
 }
 
-function logout() {
+function logout(reason) {
+    if (reason) {
+        alert(`🚪【Portal Sign Out】\nTriggered by: ${reason}\nRedirecting to index.html.`);
+    }
+
     localStorage.removeItem('pb_token');
     localStorage.removeItem('pb_user');
     localStorage.removeItem('pb_roles');
+    localStorage.removeItem('token');
+    localStorage.removeItem('currentUser');
     localStorage.removeItem('admin_user_id');
     localStorage.removeItem('admin_user_name');
     localStorage.removeItem('admin_user_email');
@@ -150,7 +184,8 @@ function initHeaderUserInfo() {
     if (initialEl) initialEl.textContent = displayName.trim().charAt(0).toUpperCase();
     if (nameEl) nameEl.textContent = displayName;
 
-    if (user.st_right && user.st_right.toUpperCase() === 'ADMIN') {
+    const userRight = (user.st_right || user.stRight || '').toUpperCase();
+    if (userRight === 'ADMIN') {
         const btnAdmin = document.getElementById('btnAdminConsole');
         if (btnAdmin) btnAdmin.style.display = 'inline-flex';
     }
@@ -222,20 +257,14 @@ function expandOnlyAccordion(accGroupId) {
     });
 }
 
-/**
- * 同步左側選單高亮狀態
- */
 function syncSidebarMenuHighlight(viewAction) {
-    // 1. 移除所有選單項目的 active 類別
     document.querySelectorAll('.acc-item').forEach(it => it.classList.remove('active'));
     if (!viewAction) return;
 
-    // 2. 依據 switchView 參數比對並加上 active
     const targetItem = document.querySelector(`.acc-item[onclick*="'${viewAction}'"]`);
     if (targetItem) {
         targetItem.classList.add('active');
 
-        // 自動展開其所屬的手風琴分組
         const parentGroup = targetItem.closest('.acc-group');
         if (parentGroup && !parentGroup.classList.contains('expanded')) {
             parentGroup.classList.add('expanded');
@@ -251,10 +280,8 @@ function syncSidebarMenuHighlight(viewAction) {
 function switchView(viewName) {
     if (!viewName) return;
 
-    // 1. 同步左側選單高亮
     syncSidebarMenuHighlight(viewName);
 
-    // 2. 更新 URL Hash
     if (currentProjectId) {
         if (viewName === 'project-detail') {
             history.replaceState(null, '', `${window.location.pathname}#pj=${currentProjectId}`);
@@ -265,7 +292,6 @@ function switchView(viewName) {
         history.replaceState(null, '', `${window.location.pathname}#view=${viewName}`);
     }
 
-    // 3. 調度執行動態註冊的視圖處理函式
     if (typeof window.PB_Views[viewName] === 'function') {
         window.PB_Views[viewName]();
     } else {
@@ -318,7 +344,6 @@ function onCurrentProjectChanged(pjId, targetView) {
     currentProjectId = parseInt(pjId, 10);
     const selectedPj = userProjects.find(p => p.pk_t01 === currentProjectId);
 
-    // 同步更新 DOM 下拉選單選中狀態
     const select = getProjectSelectElement();
     if (select) {
         select.value = String(currentProjectId);
@@ -342,22 +367,18 @@ function onCurrentProjectChanged(pjId, targetView) {
             window.invalidateEventRefsCache();
         }
 
-        // 1. 同步 URL Hash
         if (viewAction === 'project-detail') {
             history.replaceState(null, '', `${window.location.pathname}#pj=${currentProjectId}`);
         } else {
             history.replaceState(null, '', `${window.location.pathname}#pj=${currentProjectId}&view=${viewAction}`);
         }
 
-        // 2. 同步左側高亮
         syncSidebarMenuHighlight(viewAction);
 
-        // 3. 渲染畫布
         if (typeof window.PB_Views[viewAction] === 'function') {
             window.PB_Views[viewAction]();
         }
 
-        // 4. 連動載入專案討論串
         loadThread({ pj: currentProjectId }, `Project: ${selectedPj.pj_name}`, 'Project Level');
     }
 }
@@ -370,7 +391,6 @@ async function applyCurrentHashRoute() {
         return;
     }
 
-    // 若無任何 Hash，預設進入系統結構總覽視圖，不指定任何專案
     if (!hash) {
         resetToOverview();
         return;
@@ -409,9 +429,6 @@ async function applyCurrentHashRoute() {
     resetToOverview();
 }
 
-/**
- * 重設為首頁視圖 (未選取任何專案)
- */
 function resetToOverview() {
     currentProjectId = null;
     currentProjectRight = null;
@@ -425,7 +442,6 @@ function resetToOverview() {
     history.replaceState(null, '', `${window.location.pathname}#view=system-overview`);
     syncSidebarMenuHighlight('');
 
-    // 清空右側討論串
     const threadTitle = document.getElementById('threadTitle');
     const threadScope = document.getElementById('threadScope');
     const threadMessages = document.getElementById('threadMessages');
@@ -449,7 +465,6 @@ function renderSystemOverviewView() {
     if (contentEl) {
         contentEl.innerHTML = `
             <div style="padding: 24px; max-width: 1080px; margin: 0 auto;">
-                <!-- 說明圖專用容器 (後續放入圖檔) -->
                 <div id="overviewDiagramContainer" style="background: #ffffff; border: 2px dashed #cbd5e1; border-radius: 8px; padding: 36px 20px; text-align: center; margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
                     <div style="font-size: 42px; margin-bottom: 12px;">🗺️</div>
                     <h3 style="color: #1e293b; margin: 0 0 8px 0; font-size: 18px;">ProjectBook System Architecture & Workflow Diagram</h3>
@@ -458,7 +473,6 @@ function renderSystemOverviewView() {
                     </p>
                 </div>
 
-                <!-- 系統結構與角色權限指引區塊 (UI 保持英文) -->
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px;">
                     <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 16px;">
                         <h4 style="margin: 0 0 10px 0; color: #0f172a; font-size: 15px; display: flex; align-items: center; gap: 8px;">

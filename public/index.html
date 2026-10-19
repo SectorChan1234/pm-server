@@ -3,34 +3,124 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ProjectBook - Sign In</title>
-    <link rel="stylesheet" href="/css/login.css">
+    <title>Sign In - ProjectBook Management Portal</title>
+    <link rel="stylesheet" href="css/login.css?v=debug_1">
 </head>
-<body>
-
-    <div class="login-card">
-        <div class="login-header">
-            <h1>ProjectBook</h1>
-            <p>Project Collaboration Portal</p>
-        </div>
-
-        <div id="errorBox"></div>
-
-        <form id="loginForm">
-            <div class="form-group">
-                <label for="emailInput">Official Email / Username</label>
-                <input type="text" id="emailInput" placeholder="e.g. user@swd.gov.hk or user" required autofocus autocomplete="username">
+<body class="login-body">
+    <div class="login-wrapper">
+        <!-- Main Login Card Container -->
+        <main class="login-card" role="main">
+            <!-- Branding Header -->
+            <div class="login-header">
+                <div class="brand-badge">
+                    <span class="brand-icon">📁</span>
+                    <span class="brand-title">ProjectBook</span>
+                </div>
+                <h1 class="portal-heading">Enterprise Workspace</h1>
+                <p class="portal-subheading">Sign in to access your projects, phases, and mission controls.</p>
             </div>
 
-            <div class="form-group">
-                <label for="passwordInput">Password</label>
-                <input type="password" id="passwordInput" placeholder="Enter your password" required autocomplete="current-password">
-            </div>
+            <!-- Dynamic Alert / Error Message Banner -->
+            <div id="loginAlert" class="alert-banner" style="display: none;" role="alert" aria-live="polite"></div>
 
-            <button type="submit" class="btn-submit" id="submitBtn">Sign In</button>
-        </form>
+            <!-- 
+              Authentication Form 
+              [安全防禦]：
+              1. 強制設定 onsubmit="return false;" 阻斷瀏覽器原生提交。
+              2. 移除所有 input 的 name 屬性，物理級杜絕瀏覽器將 password 拼入 URL Query String (?password=...)。
+            -->
+            <form id="loginForm" class="login-form" onsubmit="return false;" novalidate>
+                <!-- Email Address Field -->
+                <div class="form-group">
+                    <label for="loginEmail" class="form-label">
+                        Email Address <span class="required-mark" aria-hidden="true">*</span>
+                    </label>
+                    <div class="input-wrapper">
+                        <span class="input-icon" aria-hidden="true">✉️</span>
+                        <input 
+                            type="email" 
+                            id="loginEmail" 
+                            class="form-input" 
+                            placeholder="e.g. user@domain.com" 
+                            required 
+                            autocomplete="username"
+                            spellcheck="false"
+                        >
+                    </div>
+                </div>
+
+                <!-- Password Field -->
+                <div class="form-group">
+                    <label for="loginPassword" class="form-label">
+                        Password <span class="required-mark" aria-hidden="true">*</span>
+                    </label>
+                    <div class="input-wrapper">
+                        <span class="input-icon" aria-hidden="true">🔒</span>
+                        <input 
+                            type="password" 
+                            id="loginPassword" 
+                            class="form-input" 
+                            placeholder="Enter your password" 
+                            required 
+                            autocomplete="current-password"
+                        >
+                    </div>
+                </div>
+
+                <!-- Dynamic Project Code Field (Contractor Secondary Verification, Default Hidden) -->
+                <div class="form-group dynamic-group" id="projectCodeGroup" style="display: none;">
+                    <div class="dynamic-badge">
+                        <span class="dynamic-icon">ℹ️</span>
+                        <span>Contractor Profile Detected</span>
+                    </div>
+                    <label for="loginProjectCode" class="form-label">
+                        Project Code <span class="required-mark" aria-hidden="true">*</span>
+                    </label>
+                    <div class="input-wrapper">
+                        <span class="input-icon" aria-hidden="true">🏷️</span>
+                        <input 
+                            type="text" 
+                            id="loginProjectCode" 
+                            class="form-input uppercase-input" 
+                            placeholder="e.g. PJ_2026_01" 
+                            autocomplete="off"
+                            spellcheck="false"
+                        >
+                    </div>
+                    <p class="form-help-text" id="projectCodeHelpText">
+                        Multiple contractor associations found. Please enter your designated Project Code to proceed.
+                    </p>
+                </div>
+
+                <!-- Form Submit Action (使用 type="button" 配合 Enter 鍵監聽，徹底防止原生 GET 跳轉) -->
+                <div class="form-actions">
+                    <button type="button" id="loginSubmitBtn" class="btn btn-primary btn-block">
+                        <span class="btn-text">Sign In</span>
+                    </button>
+                </div>
+            </form>
+
+            <!-- On-Screen Debug Diagnostic Console (專門用於顯示登入失敗原因與後端回應) -->
+            <section id="loginDebugContainer" style="margin-top: 1.25rem; border: 1px solid #cbd5e1; border-radius: 6px; background: #0f172a; color: #e2e8f0; padding: 0.75rem; font-family: monospace; font-size: 0.78rem; line-height: 1.45;">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 0.4rem; margin-bottom: 0.5rem;">
+                    <strong style="color: #38bdf8;">🛠️ Auth Debug Diagnostic Panel</strong>
+                    <button type="button" id="clearDebugBtn" style="background: #334155; color: #f8fafc; border: none; border-radius: 4px; padding: 2px 6px; font-size: 0.7rem; cursor: pointer;">Clear</button>
+                </div>
+                <pre id="loginDebugLog" style="white-space: pre-wrap; word-break: break-all; margin: 0; max-height: 220px; overflow-y: auto; color: #a7f3d0;">[System] Waiting for js/login.js to initialize...</pre>
+            </section>
+
+            <!-- Card Footer -->
+            <footer class="login-footer">
+                <div class="footer-links">
+                    <span class="system-status">● System Operational</span>
+                    <a href="admin/admin_login.html" class="admin-link" tabindex="0">Admin Console</a>
+                </div>
+                <p class="copyright-notice">&copy; Enterprise Project Governance Engine. Zero-Trust Architecture.</p>
+            </footer>
+        </main>
     </div>
 
-    <script src="/js/login.js"></script>
+    <!-- Script Layer (加上版本參數強制破除瀏覽器快取) -->
+    <script src="js/login.js?v=debug_1"></script>
 </body>
 </html>

@@ -20,7 +20,8 @@
         <!-- Zone 1: Branding & Left Sidebar Toggle -->
         <div class="brand-zone">
             <button type="button" class="btn-sidebar-toggle" id="btnSidebarToggle" onclick="toggleSidebarCollapse()" title="Toggle Navigation Sidebar">
-                ??            </button>
+                ☰
+            </button>
             <span class="brand-title" onclick="resetToOverview()" title="ProjectBook Overview" style="cursor: pointer;">
                 ProjectBook
             </span>
@@ -29,24 +30,24 @@
         <!-- Zone 2: Primary Module Navigation Tabs -->
         <nav class="top-nav-zone" aria-label="Primary Navigation">
             <button type="button" class="top-nav-btn active" id="topNavProject" onclick="switchMainTab('project')">
-                <span class="nav-icon">??</span> My Project
+                <span class="nav-icon">📁</span> My Project
             </button>
             <button type="button" class="top-nav-btn" id="topNavEvent" onclick="switchMainTab('event')">
-                <span class="nav-icon">??</span> My Event
+                <span class="nav-icon">📅</span> My Event
             </button>
             <button type="button" class="top-nav-btn" id="topNavMission" onclick="switchMainTab('mission')">
-                <span class="nav-icon">??/span> My Mission
+                <span class="nav-icon">✅</span> My Mission
             </button>
         </nav>
 
         <!-- Zone 3: Global Actions & User Center (Zero-Trust Dynamic Admin Slot) -->
         <div class="action-zone">
-            <!-- ?嗡縑隞餃??恣????瑽踝?? ST_Right === 'ADMIN' ? portal.js ??瘜典 <a> 蝭暺?-->
+            <!-- 零信任動態管理入口插槽：僅在 ST_Right === 'ADMIN' 時由 portal.js 動態注入 <a> 節點 -->
             <span id="adminActionSlot"></span>
 
-            <!-- Notifications Action (閫貊 Zone 9 ?券?”) -->
+            <!-- Notifications Action (觸發 Zone 9 隨選列表) -->
             <button type="button" class="btn-icon-badge" id="btnToggleNotifications" onclick="toggleNotificationsSidePanel(event)" title="Notifications & Channels">
-                ??
+                🔔
                 <span class="badge-count" id="unreadCount" style="display: none;">0</span>
             </button>
 
@@ -55,15 +56,15 @@
                 <button type="button" class="user-profile-btn" onclick="toggleUserMenu(event)" aria-haspopup="true">
                     <span class="user-avatar-tag" id="userInitial">U</span>
                     <span id="headerUserName">User</span>
-                    <span class="dropdown-caret">??/span>
+                    <span class="dropdown-caret">▾</span>
                 </button>
                 <div class="dropdown-menu" id="userMenu" role="menu">
                     <div class="menu-item" role="menuitem" onclick="openPasswordModal()">
-                        ?? Change Password
+                        🔑 Change Password
                     </div>
                     <div class="menu-divider"></div>
                     <div class="menu-item danger-text" role="menuitem" onclick="logout()">
-                        ? Sign Out
+                        🚪 Sign Out
                     </div>
                 </div>
             </div>
@@ -72,7 +73,7 @@
 
     <!-- Main Workspace Container -->
     <div class="workspace" id="mainWorkspace">
-        <!-- Zone 4 & Zones 5??: Left Sidebar Accordion Navigation -->
+        <!-- Zone 4 & Zones 5–8: Left Sidebar Accordion Navigation -->
         <aside id="mainSidebar" class="main-sidebar" aria-label="Sidebar Navigation">
             <!-- Zone 4: Current Project Context Switcher -->
             <div class="project-context-box">
@@ -82,13 +83,13 @@
                 </select>
             </div>
 
-            <!-- Zones 5??: Accordion Menus -->
+            <!-- Zones 5–8: Accordion Menus -->
             <div class="accordion-container">
                 <!-- Zone 5: My Project Accordion -->
                 <div class="acc-group expanded" id="accGroupProject">
                     <div class="acc-header" onclick="toggleAccordion('accGroupProject')">
-                        <span class="acc-title">?? My Project</span>
-                        <span class="acc-arrow">??/span>
+                        <span class="acc-title">📁 My Project</span>
+                        <span class="acc-arrow">▼</span>
                     </div>
                     <ul class="acc-menu">
                         <li class="acc-item" onclick="switchView('new-project')">+ New Project</li>
@@ -102,8 +103,8 @@
                 <!-- Zone 6: My Event Accordion -->
                 <div class="acc-group" id="accGroupEvent">
                     <div class="acc-header" onclick="toggleAccordion('accGroupEvent')">
-                        <span class="acc-title">?? My Event</span>
-                        <span class="acc-arrow">??/span>
+                        <span class="acc-title">📅 My Event</span>
+                        <span class="acc-arrow">▶</span>
                     </div>
                     <ul class="acc-menu">
                         <li class="acc-item" onclick="switchView('new-event')">+ New Event</li>
@@ -115,8 +116,8 @@
                 <!-- Zone 7: My Mission Accordion -->
                 <div class="acc-group" id="accGroupMission">
                     <div class="acc-header" onclick="toggleAccordion('accGroupMission')">
-                        <span class="acc-title">??My Mission</span>
-                        <span class="acc-arrow">??/span>
+                        <span class="acc-title">✅ My Mission</span>
+                        <span class="acc-arrow">▶</span>
                     </div>
                     <ul class="acc-menu">
                         <li class="acc-item" onclick="switchView('new-mission')">+ New Mission</li>
@@ -130,17 +131,17 @@
                 <!-- Zone 8: My Shortcut Accordion -->
                 <div class="acc-group" id="accGroupShortcut">
                     <div class="acc-header" onclick="toggleAccordion('accGroupShortcut')">
-                        <span class="acc-title">潃?My Shortcut</span>
-                        <span class="acc-arrow">??/span>
+                        <span class="acc-title">⭐ My Shortcut</span>
+                        <span class="acc-arrow">▶</span>
                     </div>
                     <ul class="acc-menu" id="shortcutMenuList">
-                        <li class="acc-item" onclick="switchView('manage-shortcut')">??Manage Shortcut</li>
+                        <li class="acc-item" onclick="switchView('manage-shortcut')">⚙ Manage Shortcut</li>
                     </ul>
                 </div>
             </div>
         </aside>
 
-        <!-- Zone 11: Main Canvas Host Slot (?函??皛曉??虜??100% Fluid 撖砍漲) -->
+        <!-- Zone 11: Main Canvas Host Slot (獨立垂直滾動、常態 100% Fluid 寬度) -->
         <main id="zone-11-canvas" class="zone-11-canvas" role="main">
             <div class="card" id="zone11LegacyCard">
                 <div class="card-head">
@@ -153,10 +154,10 @@
             </div>
         </main>
 
-        <!-- Zone 9: Right Auxiliary Index Host Slot (?券撅??”甈??身?梯?) -->
+        <!-- Zone 9: Right Auxiliary Index Host Slot (隨選展開列表欄，預設隱藏) -->
         <aside id="zone-9-panel" class="zone-9-panel" style="display: none;" aria-label="Notifications and Channels"></aside>
 
-        <!-- Zone 10: Right Detail & Discussion Host Slot (甈∠???甈??舀 Expand to Zone 11嚗?閮剝?? -->
+        <!-- Zone 10: Right Detail & Discussion Host Slot (次級操作欄，支援 Expand to Zone 11，預設隱藏) -->
         <aside id="zone-10-panel" class="zone-10-panel" style="display: none;" aria-label="Channel Details and Discussion"></aside>
     </div>
 
@@ -189,37 +190,37 @@
     </div>
 
     <!-- ================================================================= -->
-    <!-- Scripts Execution Layer (?湔靘陷???? -->
+    <!-- Scripts Execution Layer (嚴格依賴鏈載入) -->
     <!-- ================================================================= -->
-    <!-- 1. ?詨?摨惜撌亙摨?-->
+    <!-- 1. 核心底層工具庫 -->
     <script src="/js/common-function.js"></script>
 
-    <!-- 2. ?典??閬?頝舐??(敹??芸???portal.js 頛) -->
+    <!-- 2. 全域通用視圖路由器 (必須優先於 portal.js 載入) -->
     <script src="/js/portal-router.js"></script>
 
-    <!-- 3. 憭??批?刻?銝餅蝮賜? -->
+    <!-- 3. 外框控制器與主控總線 -->
     <script src="/js/portal.js"></script>
 
-    <!-- 4. Project 璅∠? -->
+    <!-- 4. Project 模組 -->
     <script src="/js/portal-function-project.js"></script>
     <script src="/js/portal-function-project-Modal.js"></script>
     <script src="/js/portal-function-project-Member.js"></script>
     <script src="/js/portal-function-project-Member-GanttChart.js"></script>
 
-    <!-- 5. Phase 璅∠? -->
+    <!-- 5. Phase 模組 -->
     <script src="/js/portal-function-phase.js"></script>
     <script src="/js/portal-function-phase-GanttChart.js"></script>
     <script src="/js/portal-function-phase-Modal.js"></script>
 
-    <!-- 6. Event 璅∠? -->
+    <!-- 6. Event 模組 -->
     <script src="/js/portal-function-event-GanttChart.js"></script>
     <script src="/js/portal-function-event-Modal.js"></script>
     <script src="/js/portal-function-event.js"></script>
 
-    <!-- 7. Mission 璅∠? -->
+    <!-- 7. Mission 模組 -->
     <script src="/js/portal-function-mission.js"></script>
 
-    <!-- 8. Shortcut 璅∠? -->
+    <!-- 8. Shortcut 模組 -->
     <script src="/js/portal-function-shortcut.js"></script>
 </body>
 </html>

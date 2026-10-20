@@ -30,7 +30,9 @@ body {
     overflow: hidden;
 }
 
-/* ================= Header ================= */
+/* ==========================================================================
+   Header (Zone 1, Zone 2, Zone 3)
+   ========================================================================== */
 header {
     background: #ffffff;
     border-bottom: 1px solid var(--border);
@@ -44,11 +46,33 @@ header {
     gap: 16px;
 }
 
+/* Zone 1: Branding & Left Sidebar Toggle */
 .brand-zone {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
     flex-shrink: 0;
+}
+
+.btn-sidebar-toggle {
+    background: transparent;
+    border: 1px solid transparent;
+    color: #475569;
+    font-size: 18px;
+    line-height: 1;
+    padding: 6px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+}
+
+.btn-sidebar-toggle:hover {
+    background: #f1f5f9;
+    color: var(--primary);
+    border-color: #cbd5e1;
 }
 
 .brand-title {
@@ -60,13 +84,7 @@ header {
     user-select: none;
 }
 
-.brand-sub {
-    font-size: 12px;
-    color: var(--text-muted);
-    border-left: 1px solid var(--border);
-    padding-left: 10px;
-}
-
+/* Zone 2: Navigation Tabs */
 .top-nav-zone {
     display: flex;
     align-items: center;
@@ -99,6 +117,7 @@ header {
     border-color: #c2e0ff;
 }
 
+/* Zone 3: Actions & Zero-Trust User Center */
 .action-zone {
     display: flex;
     align-items: center;
@@ -116,6 +135,10 @@ header {
     font-weight: 600;
     cursor: pointer;
     text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    transition: background-color 0.15s ease;
 }
 
 .btn-admin:hover {
@@ -135,6 +158,7 @@ header {
     border-radius: 6px;
     cursor: pointer;
     font-size: 14px;
+    transition: background 0.15s ease;
 }
 
 .btn-icon-badge:hover {
@@ -206,29 +230,6 @@ header {
     display: block;
 }
 
-.notif-menu {
-    width: 300px;
-    max-height: 380px;
-    display: none;
-    flex-direction: column;
-}
-
-.notif-menu.show {
-    display: flex;
-}
-
-.notif-header {
-    padding: 10px 14px;
-    border-bottom: 1px solid #eee;
-    font-weight: 600;
-    font-size: 13px;
-}
-
-.notif-list {
-    overflow-y: auto;
-    max-height: 300px;
-}
-
 .menu-item {
     padding: 10px 16px;
     font-size: 13px;
@@ -252,21 +253,47 @@ header {
     color: var(--danger);
 }
 
-/* ================= Layout & Sidebar ================= */
+/* ==========================================================================
+   Workspace Layout (Sidebar, Canvas, Dynamic Side Panels)
+   ========================================================================== */
 .workspace {
     display: flex;
     flex: 1;
     overflow: hidden;
+    position: relative;
+    width: 100%;
 }
 
-aside {
+/* Zone 4 & Zones 5–8: Left Sidebar */
+aside.main-sidebar, aside#mainSidebar {
     width: 260px;
+    min-width: 260px;
+    max-width: 260px;
     background: #ffffff;
     border-right: 1px solid var(--border);
     display: flex;
     flex-direction: column;
     overflow-y: auto;
+    overflow-x: hidden;
     flex-shrink: 0;
+    transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+                min-width 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+                max-width 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+                padding 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+                opacity 0.2s ease;
+}
+
+/* ★ Zone 1 側欄平滑收合狀態 */
+.workspace.sidebar-collapsed aside.main-sidebar,
+.workspace.sidebar-collapsed aside#mainSidebar {
+    width: 0 !important;
+    min-width: 0 !important;
+    max-width: 0 !important;
+    border-right: none !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    opacity: 0;
+    pointer-events: none;
 }
 
 .project-context-box {
@@ -284,7 +311,7 @@ aside {
     margin-bottom: 4px;
 }
 
-#currentProjectSelect {
+.project-select, #projectSelect, #currentProjectSelect {
     width: 100%;
     padding: 6px 8px;
     font-size: 12px;
@@ -311,7 +338,7 @@ aside {
     justify-content: space-between;
     align-items: center;
     user-select: none;
-    transition: background 0.15s;
+    transition: background 0.15s ease;
 }
 
 .acc-header:hover {
@@ -364,15 +391,23 @@ aside {
     border-left: 3px solid var(--primary);
 }
 
-/* ================= Canvas & General Components ================= */
-main {
-    flex: 1;
+/* ==========================================================================
+   Zone 11: Main Canvas Host Slot
+   ========================================================================== */
+main, .zone-11-canvas {
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
     padding: 20px;
     overflow-y: auto;
+    overflow-x: hidden;
     display: flex;
     flex-direction: column;
     gap: 16px;
-    height: 100%; /* 確保滾動條由 main 統一接管 */
+    height: 100%;
+    box-sizing: border-box;
+    transition: flex 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+                max-width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .card {
@@ -380,7 +415,6 @@ main {
     border-radius: 8px;
     border: 1px solid var(--border);
     padding: 20px 24px;
-    /* 核心修正：移除固定限制，高度隨內容自動撐開完整包裹 */
     min-height: fit-content;
     height: auto;
     display: flex;
@@ -439,6 +473,7 @@ main {
     cursor: pointer;
     font-size: 13px;
     font-weight: 600;
+    transition: background-color 0.15s ease;
 }
 .btn-submit:hover { background: var(--primary-hover); }
 
@@ -450,6 +485,7 @@ main {
     border-radius: 6px;
     font-size: 13px;
     cursor: pointer;
+    transition: background-color 0.15s ease;
 }
 .btn-secondary:hover { background: #d8dadf; }
 
@@ -463,16 +499,158 @@ main {
 }
 .btn-link:hover { text-decoration: underline; }
 
-/* ================= Discussion Thread Drawer ================= */
-.thread-drawer {
-    width: 380px;
+/* ==========================================================================
+   Zone 9 & Zone 10: Dynamic Right Side Panels
+   ========================================================================== */
+.zone-9-panel {
+    width: 320px;
+    min-width: 320px;
+    max-width: 320px;
     background: #ffffff;
     border-left: 1px solid var(--border);
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
+    height: 100%;
+    overflow: hidden;
+    box-sizing: border-box;
+    transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+.zone-10-panel {
+    width: 380px;
+    min-width: 380px;
+    max-width: 380px;
+    background: #ffffff;
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    height: 100%;
+    overflow: hidden;
+    box-sizing: border-box;
+    transition: flex 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+                width 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+                max-width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Zone 9 & 10 共同標頭與元件 */
+.side-panel-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #fafbfc;
+    flex-shrink: 0;
+}
+
+.side-panel-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1e293b;
+    margin: 0;
+}
+
+.side-panel-sub {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.side-close-btn {
+    background: none;
+    border: none;
+    font-size: 15px;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    line-height: 1;
+}
+.side-close-btn:hover {
+    background: #e2e8f0;
+    color: var(--text-dark);
+}
+
+.side-panel-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.side-list-item {
+    border: 1px solid var(--border-light);
+    border-radius: 6px;
+    padding: 10px 12px;
+    background: #ffffff;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    user-select: none;
+}
+
+.side-list-item:hover {
+    border-color: var(--primary);
+    background: #f8fafc;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+}
+
+.side-list-item.active {
+    border-color: var(--primary);
+    background: var(--primary-light);
+}
+
+.side-item-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+}
+
+.side-item-hint {
+    font-size: 10px;
+    color: #94a3b8;
+}
+
+.side-item-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #1e293b;
+    margin-bottom: 2px;
+    word-break: break-word;
+}
+
+.side-item-meta {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+/* ==========================================================================
+   Expand to Zone 11: Pure CSS Ratio Shift Mode
+   ========================================================================== */
+.workspace.side-expanded-ratio .zone-11-canvas {
+    flex: 0 0 25%;
+    max-width: 25%;
+    opacity: 0.85;
+}
+
+.workspace.side-expanded-ratio .zone-9-panel {
+    width: 280px;
+    min-width: 280px;
+    max-width: 280px;
+}
+
+.workspace.side-expanded-ratio .zone-10-panel {
+    flex: 1 1 auto;
+    width: auto;
+    max-width: none;
+}
+
+/* ==========================================================================
+   Discussion Thread Components (Zone 10 Internal Content)
+   ========================================================================== */
 .thread-header {
     padding: 12px 16px;
     border-bottom: 1px solid var(--border);
@@ -480,12 +658,14 @@ main {
     justify-content: space-between;
     align-items: center;
     background: #fafbfc;
+    flex-shrink: 0;
 }
 
 .thread-header h3 {
     font-size: 14px;
     font-weight: 600;
     margin-bottom: 2px;
+    color: #1e293b;
 }
 
 .thread-scope-badge {
@@ -501,6 +681,7 @@ main {
     cursor: pointer;
     color: var(--text-muted);
     padding: 4px;
+    line-height: 1;
 }
 .btn-refresh-icon:hover { color: var(--primary); }
 
@@ -556,6 +737,7 @@ main {
     flex-direction: column;
     gap: 8px;
     background: #fafafa;
+    flex-shrink: 0;
 }
 
 .quote-banner {
@@ -578,6 +760,7 @@ main {
     resize: none;
     outline: none;
     font-size: 13px;
+    box-sizing: border-box;
 }
 .thread-compose textarea:focus { border-color: var(--primary); }
 
@@ -592,7 +775,9 @@ main {
     color: var(--text-muted);
 }
 
-/* ================= Modals ================= */
+/* ==========================================================================
+   Modals
+   ========================================================================== */
 .modal-backdrop {
     display: none;
     position: fixed;
@@ -628,6 +813,7 @@ main {
     font-size: 20px;
     color: var(--text-muted);
     cursor: pointer;
+    line-height: 1;
 }
 
 .modal-body {
@@ -664,6 +850,7 @@ main {
     border-radius: 6px;
     font-size: 13px;
     outline: none;
+    box-sizing: border-box;
 }
 .form-field input:focus, .form-field textarea:focus, .form-field select:focus {
     border-color: var(--primary);

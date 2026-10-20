@@ -5,93 +5,90 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ProjectBook - Collaboration Portal</title>
     
-    <!-- 1. Core Framework Styles -->
+    <!-- 1. Core Framework & Functional Styles -->
     <link rel="stylesheet" href="/css/portal.css">
-	<link rel="stylesheet" href="/css/portal-function-event.css">
-	<link rel="stylesheet" href="/css/portal-function-phase.css">
-	<link rel="stylesheet" href="/css/portal-function-project.css">
-	<link rel="stylesheet" href="/css/portal-function-shortcut.css">
-	<link rel="stylesheet" href="/css/portal-function-ganttchart.css">
+    <link rel="stylesheet" href="/css/portal-function-event.css">
+    <link rel="stylesheet" href="/css/portal-function-phase.css">
+    <link rel="stylesheet" href="/css/portal-function-project.css">
+    <link rel="stylesheet" href="/css/portal-function-shortcut.css">
+    <link rel="stylesheet" href="/css/portal-function-ganttchart.css">
 </head>
 <body>
 
-    <!-- Top Navigation Bar -->
+    <!-- Top Navigation Bar (Header) -->
     <header>
+        <!-- Zone 1: Branding & Left Sidebar Toggle -->
         <div class="brand-zone">
-            <span class="brand-title" onclick="resetToOverview()" title="ProjectBook Overview" style="cursor: pointer;">ProjectBook</span>
-            <span class="brand-sub">Project Management Portal</span>
+            <button type="button" class="btn-sidebar-toggle" id="btnSidebarToggle" onclick="toggleSidebarCollapse()" title="Toggle Navigation Sidebar">
+                ??            </button>
+            <span class="brand-title" onclick="resetToOverview()" title="ProjectBook Overview" style="cursor: pointer;">
+                ProjectBook
+            </span>
         </div>
 
-        <nav class="top-nav-zone">
-            <button class="top-nav-btn active" id="topNavProject" onclick="switchMainTab('project')">
-                <span class="nav-icon">📁</span> My Project
+        <!-- Zone 2: Primary Module Navigation Tabs -->
+        <nav class="top-nav-zone" aria-label="Primary Navigation">
+            <button type="button" class="top-nav-btn active" id="topNavProject" onclick="switchMainTab('project')">
+                <span class="nav-icon">??</span> My Project
             </button>
-            <button class="top-nav-btn" id="topNavEvent" onclick="switchMainTab('event')">
-                <span class="nav-icon">📅</span> My Event
+            <button type="button" class="top-nav-btn" id="topNavEvent" onclick="switchMainTab('event')">
+                <span class="nav-icon">??</span> My Event
             </button>
-            <button class="top-nav-btn" id="topNavMission" onclick="switchMainTab('mission')">
-                <span class="nav-icon">✅</span> My Mission
+            <button type="button" class="top-nav-btn" id="topNavMission" onclick="switchMainTab('mission')">
+                <span class="nav-icon">??/span> My Mission
             </button>
         </nav>
 
+        <!-- Zone 3: Global Actions & User Center (Zero-Trust Dynamic Admin Slot) -->
         <div class="action-zone">
-            <a href="/admin/DB_TableControl.html" class="btn-admin" id="btnAdminConsole" style="display: none;">
-                ⚙ Admin Console
-            </a>
+            <!-- ?嗡縑隞餃??恣????瑽踝?? ST_Right === 'ADMIN' ? portal.js ??瘜典 <a> 蝭暺?-->
+            <span id="adminActionSlot"></span>
 
-            <!-- Unread Notifications Dropdown -->
-            <div class="dropdown-wrap" id="notifDropdownWrap">
-                <button class="btn-icon-badge" onclick="toggleNotifMenu(event)" title="Notifications">
-                    🔔
-                    <span class="badge-count" id="unreadCount" style="display: none;">0</span>
-                </button>
-                <div class="dropdown-menu notif-menu" id="notifMenu">
-                    <div class="notif-header">
-                        <span>Unread Notifications</span>
-                    </div>
-                    <div class="notif-list" id="notifList">
-                        <div class="empty-placeholder">No unread notifications</div>
-                    </div>
-                </div>
-            </div>
+            <!-- Notifications Action (閫貊 Zone 9 ?券?”) -->
+            <button type="button" class="btn-icon-badge" id="btnToggleNotifications" onclick="toggleNotificationsSidePanel(event)" title="Notifications & Channels">
+                ??
+                <span class="badge-count" id="unreadCount" style="display: none;">0</span>
+            </button>
 
             <!-- User Profile Dropdown -->
             <div class="dropdown-wrap" id="userDropdownWrap">
-                <button class="user-profile-btn" onclick="toggleUserMenu(event)">
+                <button type="button" class="user-profile-btn" onclick="toggleUserMenu(event)" aria-haspopup="true">
                     <span class="user-avatar-tag" id="userInitial">U</span>
                     <span id="headerUserName">User</span>
-                    <span class="dropdown-caret">▾</span>
+                    <span class="dropdown-caret">??/span>
                 </button>
-                <div class="dropdown-menu" id="userMenu">
-                    <div class="menu-item" onclick="openPasswordModal()">
-                        🔑 Change Password
+                <div class="dropdown-menu" id="userMenu" role="menu">
+                    <div class="menu-item" role="menuitem" onclick="openPasswordModal()">
+                        ?? Change Password
                     </div>
                     <div class="menu-divider"></div>
-                    <div class="menu-item danger-text" onclick="logout()">
-                        🚪 Sign Out
+                    <div class="menu-item danger-text" role="menuitem" onclick="logout()">
+                        ? Sign Out
                     </div>
                 </div>
             </div>
         </div>
     </header>
 
-    <div class="workspace">
-        <!-- Left Sidebar: 4-Section Accordion Menu -->
-        <aside id="mainSidebar">
+    <!-- Main Workspace Container -->
+    <div class="workspace" id="mainWorkspace">
+        <!-- Zone 4 & Zones 5??: Left Sidebar Accordion Navigation -->
+        <aside id="mainSidebar" class="main-sidebar" aria-label="Sidebar Navigation">
+            <!-- Zone 4: Current Project Context Switcher -->
             <div class="project-context-box">
                 <label class="context-label" for="projectSelect">CURRENT PROJECT:</label>
-                <!-- Standardized ID to match portal.js: projectSelect -->
-                <select id="projectSelect">
+                <select id="projectSelect" class="project-select">
                     <option value="">-- Select Project --</option>
                 </select>
             </div>
 
+            <!-- Zones 5??: Accordion Menus -->
             <div class="accordion-container">
-                <!-- 1. My Project Accordion -->
+                <!-- Zone 5: My Project Accordion -->
                 <div class="acc-group expanded" id="accGroupProject">
                     <div class="acc-header" onclick="toggleAccordion('accGroupProject')">
-                        <span class="acc-title">📁 My Project</span>
-                        <span class="acc-arrow">▼</span>
+                        <span class="acc-title">?? My Project</span>
+                        <span class="acc-arrow">??/span>
                     </div>
                     <ul class="acc-menu">
                         <li class="acc-item" onclick="switchView('new-project')">+ New Project</li>
@@ -102,11 +99,11 @@
                     </ul>
                 </div>
 
-                <!-- 2. My Event Accordion -->
+                <!-- Zone 6: My Event Accordion -->
                 <div class="acc-group" id="accGroupEvent">
                     <div class="acc-header" onclick="toggleAccordion('accGroupEvent')">
-                        <span class="acc-title">📅 My Event</span>
-                        <span class="acc-arrow">▶</span>
+                        <span class="acc-title">?? My Event</span>
+                        <span class="acc-arrow">??/span>
                     </div>
                     <ul class="acc-menu">
                         <li class="acc-item" onclick="switchView('new-event')">+ New Event</li>
@@ -115,11 +112,11 @@
                     </ul>
                 </div>
 
-                <!-- 3. My Mission Accordion -->
+                <!-- Zone 7: My Mission Accordion -->
                 <div class="acc-group" id="accGroupMission">
                     <div class="acc-header" onclick="toggleAccordion('accGroupMission')">
-                        <span class="acc-title">✅ My Mission</span>
-                        <span class="acc-arrow">▶</span>
+                        <span class="acc-title">??My Mission</span>
+                        <span class="acc-arrow">??/span>
                     </div>
                     <ul class="acc-menu">
                         <li class="acc-item" onclick="switchView('new-mission')">+ New Mission</li>
@@ -130,22 +127,22 @@
                     </ul>
                 </div>
 
-                <!-- 4. My Shortcut Accordion -->
+                <!-- Zone 8: My Shortcut Accordion -->
                 <div class="acc-group" id="accGroupShortcut">
                     <div class="acc-header" onclick="toggleAccordion('accGroupShortcut')">
-                        <span class="acc-title">⭐ My Shortcut</span>
-                        <span class="acc-arrow">▶</span>
+                        <span class="acc-title">潃?My Shortcut</span>
+                        <span class="acc-arrow">??/span>
                     </div>
                     <ul class="acc-menu" id="shortcutMenuList">
-                        <li class="acc-item" onclick="switchView('manage-shortcut')">⚙ Manage Shortcut</li>
+                        <li class="acc-item" onclick="switchView('manage-shortcut')">??Manage Shortcut</li>
                     </ul>
                 </div>
             </div>
         </aside>
 
-        <!-- Main Content Canvas -->
-        <main>
-            <div class="card">
+        <!-- Zone 11: Main Canvas Host Slot (?函??皛曉??虜??100% Fluid 撖砍漲) -->
+        <main id="zone-11-canvas" class="zone-11-canvas" role="main">
+            <div class="card" id="zone11LegacyCard">
                 <div class="card-head">
                     <h2 id="viewHeading">Project Overview</h2>
                     <span class="user-tag" id="viewRole">Role: -</span>
@@ -156,38 +153,19 @@
             </div>
         </main>
 
-        <!-- Discussion Thread Drawer (M2) -->
-        <section class="thread-drawer" id="threadDrawer">
-            <div class="thread-header">
-                <div>
-                    <h3 id="threadTitle">Discussion Thread</h3>
-                    <div class="thread-scope-badge" id="threadScope">Project Level</div>
-                </div>
-                <button class="btn-refresh-icon" onclick="refreshCurrentThread()" title="Refresh Thread">↻</button>
-            </div>
-            <div class="thread-messages" id="threadMessages">
-                <div class="empty-placeholder">Click on a project, event, or mission to view messages.</div>
-            </div>
-            <div class="thread-compose">
-                <div class="quote-banner" id="quoteBanner" style="display: none;">
-                    <span id="quoteLabel">Replying to...</span>
-                    <button class="btn-link" onclick="cancelQuote()">Cancel</button>
-                </div>
-                <textarea id="commentText" placeholder="Write a comment (supports nested quotes)..." onkeydown="handleCommentKeyDown(event)"></textarea>
-                <div class="thread-compose-bar">
-                    <span class="compose-hint">Ctrl + Enter to send</span>
-                    <button class="btn-submit" onclick="submitComment()">Send</button>
-                </div>
-            </div>
-        </section>
+        <!-- Zone 9: Right Auxiliary Index Host Slot (?券撅??”甈??身?梯?) -->
+        <aside id="zone-9-panel" class="zone-9-panel" style="display: none;" aria-label="Notifications and Channels"></aside>
+
+        <!-- Zone 10: Right Detail & Discussion Host Slot (甈∠???甈??舀 Expand to Zone 11嚗?閮剝?? -->
+        <aside id="zone-10-panel" class="zone-10-panel" style="display: none;" aria-label="Channel Details and Discussion"></aside>
     </div>
 
     <!-- Modal: Change Password -->
-    <div class="modal-backdrop" id="pwdModal">
+    <div class="modal-backdrop" id="pwdModal" role="dialog" aria-modal="true" aria-labelledby="pwdModalTitle">
         <div class="modal-box">
             <div class="modal-header">
-                <h3>Change Password</h3>
-                <button class="modal-close-btn" onclick="closeModal('pwdModal')">&times;</button>
+                <h3 id="pwdModalTitle">Change Password</h3>
+                <button type="button" class="modal-close-btn" onclick="closeModal('pwdModal')">&times;</button>
             </div>
             <div class="modal-body">
                 <div class="form-field">
@@ -196,7 +174,7 @@
                 </div>
                 <div class="form-field">
                     <label for="newPwdInput">New Password</label>
-                    <input type="password" id="newPwdInput" placeholder="Enter new password" autocomplete="new-password">
+                    <input type="password" id="newPwdInput" placeholder="Enter new password (min. 6 characters)" autocomplete="new-password">
                 </div>
                 <div class="form-field">
                     <label for="confirmPwdInput">Confirm New Password</label>
@@ -204,33 +182,44 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="btn-secondary" onclick="closeModal('pwdModal')">Cancel</button>
-                <button class="btn-submit" onclick="submitPasswordChange()">Save Changes</button>
+                <button type="button" class="btn-secondary" onclick="closeModal('pwdModal')">Cancel</button>
+                <button type="button" class="btn-submit" onclick="submitPasswordChange()">Save Changes</button>
             </div>
         </div>
     </div>
 
     <!-- ================================================================= -->
-    <!-- Scripts (基礎核心 portal.js 先載入以提供 registerView，各子模組隨後註冊) -->
+    <!-- Scripts Execution Layer (?湔靘陷???? -->
     <!-- ================================================================= -->
-    <!-- 1. 核心底層與路由器 -->
+    <!-- 1. ?詨?摨惜撌亙摨?-->
     <script src="/js/common-function.js"></script>
+
+    <!-- 2. ?典??閬?頝舐??(敹??芸???portal.js 頛) -->
+    <script src="/js/portal-router.js"></script>
+
+    <!-- 3. 憭??批?刻?銝餅蝮賜? -->
     <script src="/js/portal.js"></script>
 
-    <!-- 2. Project 模組 -->
+    <!-- 4. Project 璅∠? -->
     <script src="/js/portal-function-project.js"></script>
     <script src="/js/portal-function-project-Modal.js"></script>
     <script src="/js/portal-function-project-Member.js"></script>
-	<script src="/js/portal-function-project-Member-GanttChart.js"></script>
+    <script src="/js/portal-function-project-Member-GanttChart.js"></script>
 
-    <!-- 3. Phase 模組 -->
+    <!-- 5. Phase 璅∠? -->
     <script src="/js/portal-function-phase.js"></script>
     <script src="/js/portal-function-phase-GanttChart.js"></script>
-    <script src="/js/portal-function-phase-Modal.js"></script> 
+    <script src="/js/portal-function-phase-Modal.js"></script>
 
-    <!-- 4. Event 模組 -->
+    <!-- 6. Event 璅∠? -->
     <script src="/js/portal-function-event-GanttChart.js"></script>
     <script src="/js/portal-function-event-Modal.js"></script>
     <script src="/js/portal-function-event.js"></script>
+
+    <!-- 7. Mission 璅∠? -->
+    <script src="/js/portal-function-mission.js"></script>
+
+    <!-- 8. Shortcut 璅∠? -->
+    <script src="/js/portal-function-shortcut.js"></script>
 </body>
 </html>

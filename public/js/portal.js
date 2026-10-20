@@ -123,7 +123,7 @@ function logout(reason) {
 // ==========================================================================
 document.addEventListener('DOMContentLoaded', async () => {
     initHeaderUserInfo();
-    initSidebarPreference();
+    initSidebarPreference(); // 純前端同步讀取 localStorage，0 網路延遲
     loadUnreadNotifications();
 
     // 載入專案選單資料庫清單
@@ -195,11 +195,11 @@ function initHeaderUserInfo() {
 }
 
 /**
- * [職責] 初始化 Zone 1 側欄偏好狀態 (向後端 SettingRefHandler 查詢)
+ * [職責] 初始化 Zone 1 側欄偏好狀態 (純前端 localStorage 讀取，0 資料庫 I/O)
  */
-async function initSidebarPreference() {
-    const res = await api('/api/setting/sidebar-pref');
-    if (res && res.status === 'SUCCESS' && res.collapsed === true) {
+function initSidebarPreference() {
+    const isCollapsed = localStorage.getItem('pb_sidebar_collapsed') === 'true';
+    if (isCollapsed) {
         const workspaceEl = document.getElementById('mainWorkspace') || document.querySelector('.workspace');
         if (workspaceEl) {
             workspaceEl.classList.add('sidebar-collapsed');
@@ -208,20 +208,15 @@ async function initSidebarPreference() {
 }
 
 /**
- * [職責] 切換 Zone 1 側欄收合狀態，並非同步持久化至 T00_Ref (0 台帳污染)
+ * [職責] 切換 Zone 1 側欄收合狀態，並同步寫入 localStorage (0 網路延遲、0 台帳污染)
  */
-async function toggleSidebarCollapse() {
+function toggleSidebarCollapse() {
     const workspaceEl = document.getElementById('mainWorkspace') || document.querySelector('.workspace');
     if (!workspaceEl) return;
 
     workspaceEl.classList.toggle('sidebar-collapsed');
     const isCollapsed = workspaceEl.classList.contains('sidebar-collapsed');
-
-    // 非同步向後端同步偏好 (即使失敗亦不影響前台操作流暢度)
-    await api('/api/setting/sidebar-pref', {
-        method: 'POST',
-        body: JSON.stringify({ collapsed: isCollapsed })
-    });
+    localStorage.setItem('pb_sidebar_collapsed', isCollapsed ? 'true' : 'false');
 }
 
 /**

@@ -7,6 +7,15 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.util.concurrent.Executors;
 
+/**
+ * ProjectBook 系統主伺服器入口 (Enterprise HTTP Server Bootstrap)
+ * File: src/AppServer.java
+ *
+ * 職責與邊界：
+ * 1. 綁定 0.0.0.0:8080 並配置固定執行緒池 (30 Threads)。
+ * 2. 集中管理並掛載所有業務 API Context 與靜態資源處理器 (StaticHandler)。
+ * 3. Stage 2 增量掛載 SettingRefHandler (/api/setting 與 /api/portal/shortcut)。
+ */
 public class AppServer {
     private static final int PORT = 8080;
 
@@ -19,7 +28,7 @@ public class AppServer {
             server.createContext("/api/ping", new HttpHandler() {
                 @Override
                 public void handle(HttpExchange exchange) throws IOException {
-                    String response = "{\"status\":\"PONG\",\"message\":\"AppServer is running!\"}";
+                    String response = "{\"success\":true,\"status\":\"PONG\",\"message\":\"AppServer is running!\"}";
                     byte[] bytes = response.getBytes("UTF-8");
                     exchange.getResponseHeaders().set("Content-Type", "application/json; charset=UTF-8");
                     exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
@@ -40,10 +49,15 @@ public class AppServer {
             MissionHandler missionHandler = new MissionHandler();
             AdminHandler adminHandler = new AdminHandler();
             DBAdminHandler dbAdminHandler = new DBAdminHandler();
+            SettingRefHandler settingRefHandler = new SettingRefHandler();
 
             // 3. API 路由掛載
             server.createContext("/api/auth", authHandler);
             server.createContext("/api/portal/message", messageHandler);
+
+            // ★ Stage 2 & Stage 3 個人偏好與捷徑治理路由 (T00_Ref 專屬，0 台帳污染)
+            server.createContext("/api/setting", settingRefHandler);
+            server.createContext("/api/portal/shortcut", settingRefHandler);
 
             // ★ 專案模組拆分：精確路由優先配對給 MemberRelatedHandler
             server.createContext("/api/portal/project/members", memberRelatedHandler);

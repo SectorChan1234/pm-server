@@ -1,10 +1,10 @@
 // ==========================================================================
-// ProjectBook Collaboration Portal - Core Bus & Shell Engine
+// ProjectBook Collaboration Portal - Core Bus & Shell Controller
 // File: /public/js/portal.js
 // Standard: Defensive Intranet Architecture (Zero External Dependencies)
 // ==========================================================================
 
-// Global Authentication State & Session Context
+// Global Authentication State & Session Context (對齊 Stage 1 雙向相容金鑰)
 const token = localStorage.getItem('pb_token') || sessionStorage.getItem('pb_token');
 const rawUser = JSON.parse(localStorage.getItem('pb_user') || sessionStorage.getItem('pb_user') || '{}');
 
@@ -16,32 +16,17 @@ const user = {
     st_right: rawUser.st_right || rawUser.stRight || '',
     stRight: rawUser.stRight || rawUser.st_right || '',
     name: rawUser.name || 'User',
-    email: rawUser.email || ''
+    email: rawUser.email || '',
+    fkT05PkT01Custom: rawUser.fkT05PkT01Custom || rawUser.fk_t05_pk_t01_custom || 0
 };
 
-// Project & Navigation Context State
+// Project & Context State
 let userProjects = [];
 let currentProjectId = null;
 let currentProjectRight = null; // 'FULL', 'GENERAL', 'VIEWER', 'EVENT ONLY', 'ADMIN'
-let currentThreadContext = { type: 'project', id: null };
 let activeQuote = null;
 
-// Global View Registry (Pluggable modules hook here)
-window.PB_Views = window.PB_Views || {};
-
-/**
- * 註冊視圖處理函式 (模組插拔接口)
- * @param {string} actionKey - 視圖識別碼 (例如: 'project-detail', 'project-phase')
- * @param {Function} handlerFn - 主工作畫布渲染函式
- */
-function registerView(actionKey, handlerFn) {
-    window.PB_Views[actionKey] = handlerFn;
-}
-
-// 註冊首頁/系統架構說明視圖
-registerView('system-overview', renderSystemOverviewView);
-
-// 基礎身分守衛 (Route Guard)：若未通過驗證，彈窗明確警示具體原因再跳轉
+// 基礎身分守衛 (Route Guard)：未通過驗證則彈窗明確警示並跳轉
 const effectiveUserId = user.pk_t05 || user.pkT05;
 if (!token || !effectiveUserId) {
     const missingItems = [];
@@ -100,7 +85,7 @@ async function api(path, options = {}) {
         const data = await res.json();
 
         // 2. 寫入成功後：全自動觸發階層式快取失效與審計日誌
-        if (isMutation && data && data.status === 'SUCCESS') {
+        if (isMutation && data && (data.status === 'SUCCESS' || data.success === true)) {
             if (window.MutationGuard && typeof window.MutationGuard.notifySuccess === 'function') {
                 window.MutationGuard.notifySuccess(path, data);
             }
@@ -123,6 +108,7 @@ function logout(reason) {
     localStorage.removeItem('pb_roles');
     localStorage.removeItem('token');
     localStorage.removeItem('currentUser');
+    localStorage.removeItem('adminToken');
     localStorage.removeItem('admin_user_id');
     localStorage.removeItem('admin_user_name');
     localStorage.removeItem('admin_user_email');
@@ -135,18 +121,36 @@ function logout(reason) {
 // ==========================================================================
 // Initialization & Global Event Listeners
 // ==========================================================================
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     initHeaderUserInfo();
+    initSidebarPreference();
     loadUnreadNotifications();
 
-    loadProjectsAndInit().then(() => {
-        applyCurrentHashRoute();
-    });
+    // 載入專案選單資料庫清單
+    await loadProjectsAndInit();
 
-    window.addEventListener('hashchange', () => {
-        applyCurrentHashRoute();
-    });
+    // 啟動通用路由器分發引擎 (注入 Zone 4 專案同步與左側選單高亮回呼)
+    if (window.PortalRouter) {
+        window.PortalRouter.init({
+            onSyncProject: syncZone4ProjectContext,
+            onSyncMenu: syncSidebarMenuHighlight
+        });
+    }
 
+    // 綁定 Zone 4 專案下拉選單變更事件 (主動切換專案)
+    const sel = getProjectSelectElement();
+    if (sel) {
+        sel.addEventListener('change', (e) => {
+            const selectedVal = e.target.value;
+            if (!selectedVal) {
+                resetToOverview();
+            } else {
+                window.PortalRouter.navigateToProject(selectedVal, 'project-detail');
+            }
+        });
+    }
+
+    // 攔截頁面內局部深層錨點點擊
     document.addEventListener('click', (e) => {
         const link = e.target.closest('a');
         if (!link) return;
@@ -162,21 +166,11 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
     });
-
-    // 監聽專案選單變更事件
-    const sel = getProjectSelectElement();
-    if (sel) {
-        sel.addEventListener('change', (e) => {
-            const selectedVal = e.target.value;
-            if (!selectedVal) {
-                resetToOverview();
-            } else {
-                onCurrentProjectChanged(selectedVal);
-            }
-        });
-    }
 });
 
+/**
+ * [職責] 初始化 Zone 3 使用者中心與零信任 Admin Console 進入按鈕
+ */
 function initHeaderUserInfo() {
     const displayName = user.name || 'User';
     const initialEl = document.getElementById('userInitial');
@@ -184,13 +178,55 @@ function initHeaderUserInfo() {
     if (initialEl) initialEl.textContent = displayName.trim().charAt(0).toUpperCase();
     if (nameEl) nameEl.textContent = displayName;
 
+    // ★ 零信任安全注入：僅當身分為 ADMIN 時動態建立 DOM 節點插入 #adminActionSlot
     const userRight = (user.st_right || user.stRight || '').toUpperCase();
-    if (userRight === 'ADMIN') {
-        const btnAdmin = document.getElementById('btnAdminConsole');
-        if (btnAdmin) btnAdmin.style.display = 'inline-flex';
+    const adminSlot = document.getElementById('adminActionSlot');
+    if (adminSlot) {
+        adminSlot.innerHTML = '';
+        if (userRight === 'ADMIN') {
+            const adminBtn = document.createElement('a');
+            adminBtn.href = '/admin/DB_TableControl.html';
+            adminBtn.className = 'btn-admin';
+            adminBtn.id = 'btnAdminConsole';
+            adminBtn.innerHTML = '⚙ Admin Console';
+            adminSlot.appendChild(adminBtn);
+        }
     }
 }
 
+/**
+ * [職責] 初始化 Zone 1 側欄偏好狀態 (向後端 SettingRefHandler 查詢)
+ */
+async function initSidebarPreference() {
+    const res = await api('/api/setting/sidebar-pref');
+    if (res && res.status === 'SUCCESS' && res.collapsed === true) {
+        const workspaceEl = document.getElementById('mainWorkspace') || document.querySelector('.workspace');
+        if (workspaceEl) {
+            workspaceEl.classList.add('sidebar-collapsed');
+        }
+    }
+}
+
+/**
+ * [職責] 切換 Zone 1 側欄收合狀態，並非同步持久化至 T00_Ref (0 台帳污染)
+ */
+async function toggleSidebarCollapse() {
+    const workspaceEl = document.getElementById('mainWorkspace') || document.querySelector('.workspace');
+    if (!workspaceEl) return;
+
+    workspaceEl.classList.toggle('sidebar-collapsed');
+    const isCollapsed = workspaceEl.classList.contains('sidebar-collapsed');
+
+    // 非同步向後端同步偏好 (即使失敗亦不影響前台操作流暢度)
+    await api('/api/setting/sidebar-pref', {
+        method: 'POST',
+        body: JSON.stringify({ collapsed: isCollapsed })
+    });
+}
+
+/**
+ * [職責] 讀取並更新未讀通知數量 (Zone 3 鈴鐺標籤)
+ */
 async function loadUnreadNotifications() {
     const res = await api('/api/portal/message/unread-count');
     if (res && res.status === 'SUCCESS') {
@@ -206,8 +242,20 @@ async function loadUnreadNotifications() {
     }
 }
 
+/**
+ * [職責] 點擊 Zone 3 鈴鐺切換 Zone 9 隨選列表面板
+ */
+function toggleNotificationsSidePanel(event) {
+    if (event) {
+        event.stopPropagation();
+    }
+    if (window.PortalRouter) {
+        window.PortalRouter.toggleSidePanel('notifications');
+    }
+}
+
 // ==========================================================================
-// Navigation & Accordion Controls
+// Navigation & Accordion Controls (Zone 2, Zone 5–8)
 // ==========================================================================
 function switchMainTab(tabKey) {
     document.querySelectorAll('.top-nav-btn').forEach(btn => btn.classList.remove('active'));
@@ -275,31 +323,12 @@ function syncSidebarMenuHighlight(viewAction) {
 }
 
 // ==========================================================================
-// Central View Switcher & Dispatcher
+// Central View Switcher (委派予 PortalRouter)
 // ==========================================================================
 function switchView(viewName) {
     if (!viewName) return;
-
-    syncSidebarMenuHighlight(viewName);
-
-    if (currentProjectId) {
-        if (viewName === 'project-detail') {
-            history.replaceState(null, '', `${window.location.pathname}#pj=${currentProjectId}`);
-        } else {
-            history.replaceState(null, '', `${window.location.pathname}#pj=${currentProjectId}&view=${viewName}`);
-        }
-    } else {
-        history.replaceState(null, '', `${window.location.pathname}#view=${viewName}`);
-    }
-
-    if (typeof window.PB_Views[viewName] === 'function') {
-        window.PB_Views[viewName]();
-    } else {
-        console.warn(`[ProjectBook] No view handler registered for action: ${viewName}`);
-        const contentEl = document.getElementById('viewContent');
-        if (contentEl) {
-            contentEl.innerHTML = `<div class="empty-placeholder">Module action [${escapeHtml(viewName)}] is not loaded.</div>`;
-        }
+    if (window.PortalRouter) {
+        window.PortalRouter.switchView(viewName);
     }
 }
 
@@ -307,8 +336,20 @@ function handleMenuAction(actionKey) {
     switchView(actionKey);
 }
 
+// 向下相容全域 registerView 註冊入口
+function registerView(actionKey, handlerFn) {
+    if (window.PortalRouter) {
+        window.PortalRouter.registerLegacyView(actionKey, handlerFn);
+    } else {
+        window.PB_Views[actionKey] = handlerFn;
+    }
+}
+
+// 註冊首頁系統架構說明視圖
+registerView('system-overview', renderSystemOverviewView);
+
 // ==========================================================================
-// Deep Linking (URL Hash Router) & Project Context Switcher
+// Zone 4: Project Context & Deep Linking Synchronization
 // ==========================================================================
 async function loadProjectsAndInit() {
     const res = await api('/api/portal/project/list');
@@ -335,125 +376,76 @@ async function loadProjectsAndInit() {
     }
 }
 
-function onCurrentProjectChanged(pjId, targetView) {
-    if (!pjId) {
-        resetToOverview();
-        return;
-    }
-
-    currentProjectId = parseInt(pjId, 10);
-    const selectedPj = userProjects.find(p => p.pk_t01 === currentProjectId);
-
+/**
+ * [職責] 被動接收 PortalRouter 的分發通知，同步 Zone 4 專案上下文與權限
+ */
+async function syncZone4ProjectContext(targetPjId, targetView) {
     const select = getProjectSelectElement();
-    if (select) {
-        select.value = String(currentProjectId);
+
+    // 1. 若無指定專案 (pj == null)
+    if (!targetPjId) {
+        currentProjectId = null;
+        currentProjectRight = null;
+        if (select) select.value = '';
+        const menuManageMember = document.getElementById('menuManageMember');
+        if (menuManageMember) menuManageMember.style.display = 'none';
+        return true;
     }
 
-    if (selectedPj) {
-        currentProjectRight = (selectedPj.my_right || '').toUpperCase();
-        
-        const headingEl = document.getElementById('viewHeading');
-        const roleEl = document.getElementById('viewRole');
-        if (headingEl) headingEl.textContent = `[${selectedPj.pj_code}] ${selectedPj.pj_name}`;
-        if (roleEl) roleEl.textContent = `Role: ${currentProjectRight || 'MEMBER'}`;
+    const numericPj = parseInt(targetPjId, 10);
+    const matchedPj = userProjects.find(p => p.pk_t01 === numericPj);
 
-        const canManageMember = (currentProjectRight === 'FULL');
+    // 2. 若清單中有此專案，立即同步上下文
+    if (matchedPj) {
+        currentProjectId = numericPj;
+        currentProjectRight = (matchedPj.my_right || '').toUpperCase();
+        if (select) select.value = String(currentProjectId);
+
+        const canManageMember = (currentProjectRight === 'FULL' || currentProjectRight === 'ADMIN');
         const menuManageMember = document.getElementById('menuManageMember');
         if (menuManageMember) menuManageMember.style.display = canManageMember ? 'block' : 'none';
-
-        const viewAction = targetView || 'project-detail';
 
         if (typeof window.invalidateEventRefsCache === 'function') {
             window.invalidateEventRefsCache();
         }
-
-        if (viewAction === 'project-detail') {
-            history.replaceState(null, '', `${window.location.pathname}#pj=${currentProjectId}`);
-        } else {
-            history.replaceState(null, '', `${window.location.pathname}#pj=${currentProjectId}&view=${viewAction}`);
-        }
-
-        syncSidebarMenuHighlight(viewAction);
-
-        if (typeof window.PB_Views[viewAction] === 'function') {
-            window.PB_Views[viewAction]();
-        }
-
-        loadThread({ pj: currentProjectId }, `Project: ${selectedPj.pj_name}`, 'Project Level');
-    }
-}
-
-async function applyCurrentHashRoute() {
-    let hash = window.location.hash.replace(/^#/, '');
-
-    if (!userProjects || userProjects.length === 0) {
-        renderSystemOverviewView();
-        return;
+        return true;
     }
 
-    if (!hash) {
+    // 3. 若清單未命中，向後端核驗權限
+    const checkRes = await api(`/api/portal/project/check-access?pj=${numericPj}`);
+    if (checkRes && checkRes.status === 'NOT_FOUND') {
+        alert(`【Project Not Found】\nProject [ID: ${numericPj}] does not exist.`);
         resetToOverview();
-        return;
+        return false;
+    } else if (checkRes && checkRes.status === 'FORBIDDEN') {
+        alert(`【Access Denied (403 Forbidden)】\n${checkRes.message}`);
+        resetToOverview();
+        return false;
+    } else if (checkRes && checkRes.status === 'AUTHORIZED') {
+        await loadProjectsAndInit();
+        currentProjectId = numericPj;
+        if (select) select.value = String(currentProjectId);
+        return true;
     }
 
-    const params = new URLSearchParams(hash);
-    const pjParam = params.get('pj');
-    const viewParam = params.get('view');
-
-    if (pjParam) {
-        const pjId = parseInt(pjParam, 10);
-        const targetPj = userProjects.find(p => p.pk_t01 === pjId);
-
-        if (targetPj) {
-            onCurrentProjectChanged(pjId, viewParam);
-            return;
-        } else {
-            const checkRes = await api(`/api/portal/project/check-access?pj=${pjId}`);
-            if (checkRes && checkRes.status === 'NOT_FOUND') {
-                alert(`【Project Not Found】\nProject [ID: ${pjId}] does not exist.`);
-            } else if (checkRes && checkRes.status === 'FORBIDDEN') {
-                alert(`【Access Denied (403 Forbidden)】\n${checkRes.message}`);
-            } else {
-                alert(`【Access Error】\nUnable to access project [ID: ${pjId}].`);
-            }
-            resetToOverview();
-            return;
-        }
-    }
-
-    if (viewParam) {
-        switchView(viewParam);
-        return;
-    }
-
+    alert(`【Access Error】\nUnable to access project [ID: ${numericPj}].`);
     resetToOverview();
+    return false;
 }
 
 function resetToOverview() {
-    currentProjectId = null;
-    currentProjectRight = null;
-
-    const select = getProjectSelectElement();
-    if (select) select.value = '';
-
-    const menuManageMember = document.getElementById('menuManageMember');
-    if (menuManageMember) menuManageMember.style.display = 'none';
-
-    history.replaceState(null, '', `${window.location.pathname}#view=system-overview`);
-    syncSidebarMenuHighlight('');
-
-    const threadTitle = document.getElementById('threadTitle');
-    const threadScope = document.getElementById('threadScope');
-    const threadMessages = document.getElementById('threadMessages');
-    if (threadTitle) threadTitle.textContent = 'Discussion Thread';
-    if (threadScope) threadScope.textContent = 'System Scope';
-    if (threadMessages) {
-        threadMessages.innerHTML = '<div class="empty-placeholder">Select a project, event, or mission to view messages.</div>';
+    if (window.PortalRouter) {
+        window.PortalRouter.navigateToProject(null, 'system-overview');
     }
-
-    renderSystemOverviewView();
 }
 
+function resetToHome() {
+    resetToOverview();
+}
+
+/**
+ * [職責] 渲染 Zone 11 首頁系統架構與治理導引 (System Overview)
+ */
 function renderSystemOverviewView() {
     const headingEl = document.getElementById('viewHeading');
     const roleEl = document.getElementById('viewRole');
@@ -469,7 +461,7 @@ function renderSystemOverviewView() {
                     <div style="font-size: 42px; margin-bottom: 12px;">🗺️</div>
                     <h3 style="color: #1e293b; margin: 0 0 8px 0; font-size: 18px;">ProjectBook System Architecture & Workflow Diagram</h3>
                     <p style="color: #64748b; font-size: 13px; margin: 0 auto; max-width: 640px;">
-                        This placeholder is reserved for the system architecture diagram. It provides a visual walkthrough of Project hierarchy, Event scheduling, Mission assignments, and zero-trust permission models.
+                        This workspace is governed by a zero-trust multi-tier hierarchy: Projects contain sequential Phases, Phases schedule Events on the Split-Rail Gantt, and Events dispatch actionable Missions.
                     </p>
                 </div>
 
@@ -513,10 +505,9 @@ function renderSystemOverviewView() {
 }
 
 // ==========================================================================
-// Discussion Thread Drawer Engine
+// Zone 10: Discussion Thread Engine
 // ==========================================================================
-async function loadThread(paramObj, displayTitle, scopeLabel) {
-    currentThreadContext = paramObj;
+async function renderThreadMessagesInZone10(queryObj, displayTitle, scopeLabel) {
     const titleEl = document.getElementById('threadTitle');
     const scopeEl = document.getElementById('threadScope');
     const container = document.getElementById('threadMessages');
@@ -527,7 +518,7 @@ async function loadThread(paramObj, displayTitle, scopeLabel) {
 
     container.innerHTML = '<div class="empty-placeholder">Loading messages...</div>';
 
-    const qs = new URLSearchParams(paramObj).toString();
+    const qs = new URLSearchParams(queryObj).toString();
     const res = await api(`/api/portal/message/thread?${qs}`);
 
     if (!res || res.status !== 'SUCCESS') {
@@ -568,10 +559,11 @@ async function loadThread(paramObj, displayTitle, scopeLabel) {
 }
 
 function refreshCurrentThread() {
-    if (currentThreadContext && currentThreadContext.id) {
-        const titleEl = document.getElementById('threadTitle');
-        const scopeEl = document.getElementById('threadScope');
-        loadThread(currentThreadContext, titleEl ? titleEl.textContent : '', scopeEl ? scopeEl.textContent : '');
+    if (window.PortalRouter) {
+        const params = window.PortalRouter.getCurrentParams();
+        if (params.msgId) {
+            window.PortalRouter.openSideDetail(params.msgId);
+        }
     }
 }
 
@@ -606,11 +598,22 @@ async function submitComment() {
     const message = input.value.trim();
     if (!message) return;
 
+    const routerParams = window.PortalRouter ? window.PortalRouter.getCurrentParams() : {};
+    const msgId = String(routerParams.msgId || '');
+
+    let pjId = currentProjectId || routerParams.pj || null;
+    let evId = routerParams.ev || null;
+    let msId = routerParams.ms || null;
+
+    if (msgId.startsWith('MS_')) msId = parseInt(msgId.replace('MS_', ''), 10);
+    else if (msgId.startsWith('EV_')) evId = parseInt(msgId.replace('EV_', ''), 10);
+    else if (msgId.startsWith('PJ_')) pjId = parseInt(msgId.replace('PJ_', ''), 10);
+
     const payload = {
         message: message,
-        fk_t08_pk_t01: currentThreadContext.pj || currentProjectId,
-        fk_t08_pk_t03: currentThreadContext.ev || null,
-        fk_t08_pk_t04: currentThreadContext.ms || null,
+        fk_t08_pk_t01: pjId,
+        fk_t08_pk_t03: evId,
+        fk_t08_pk_t04: msId,
         fk_t08_pk_t08_quote: activeQuote ? activeQuote.pk_t08 : null
     };
 
@@ -692,39 +695,23 @@ async function submitPasswordChange() {
         })
     });
 
-    if (res && res.status === 'SUCCESS') {
+    if (res && (res.status === 'SUCCESS' || res.success === true)) {
         alert('Password updated successfully. Please sign in again with your new credentials.');
         closeModal('pwdModal');
-        logout();
+        logout('Password changed');
     } else {
         alert('Password update failed: ' + (res ? res.message : 'Server error'));
     }
 }
 
-function resetToHome() {
-    resetToOverview();
-}
-
 function toggleUserMenu(e) {
     e.stopPropagation();
-    const notifMenu = document.getElementById('notifMenu');
     const userMenu = document.getElementById('userMenu');
-    if (notifMenu) notifMenu.classList.remove('show');
     if (userMenu) userMenu.classList.toggle('show');
-}
-
-function toggleNotifMenu(e) {
-    e.stopPropagation();
-    const userMenu = document.getElementById('userMenu');
-    const notifMenu = document.getElementById('notifMenu');
-    if (userMenu) userMenu.classList.remove('show');
-    if (notifMenu) notifMenu.classList.toggle('show');
 }
 
 document.addEventListener('click', () => {
     closeUserMenu();
-    const notifMenu = document.getElementById('notifMenu');
-    if (notifMenu) notifMenu.classList.remove('show');
 });
 
 // ==========================================================================
@@ -736,43 +723,22 @@ document.addEventListener('click', () => {
 
     window.addEventListener('blur', () => {
         lastBlurTimestamp = Date.now();
-        console.log(`%c[SyncGuard] 👁️ User switched away from tab at ${new Date().toLocaleTimeString()}`, 'color: #64748b; font-size: 11px;');
     });
 
     document.addEventListener('visibilitychange', async () => {
         if (document.visibilityState === 'visible') {
             const awayDurationMs = Date.now() - lastBlurTimestamp;
-            const awayDurationSec = (awayDurationMs / 1000).toFixed(1);
+            if (awayDurationMs < MIN_BACKGROUND_DURATION_MS) return;
 
-            if (awayDurationMs < MIN_BACKGROUND_DURATION_MS) {
-                console.log(`%c[SyncGuard] ⏭️ Skip background sync (Away for ${awayDurationSec}s < 10s)`, 'color: #94a3b8; font-style: italic;');
-                return;
-            }
-
-            console.group(`%c[SyncGuard] 🔄 Triggering background re-validation (Away for ${awayDurationSec}s)...`, 'color: #0284c7; font-weight: bold;');
-
-            if (typeof token === 'undefined' || !token) {
-                console.warn('[SyncGuard] User not logged in, aborted.');
-                console.groupEnd();
-                return;
-            }
+            if (!token) return;
 
             try {
-                if (typeof loadProjectsAndInit === 'function') {
-                    console.log('[SyncGuard] 1. Re-validating Project Roster & Roles...');
-                    await loadProjectsAndInit();
-                }
-
+                await loadProjectsAndInit();
                 if (typeof window.invalidateEventRefsCache === 'function') {
-                    console.log('[SyncGuard] 2. Invalidating stale Event & Phase caches...');
                     window.invalidateEventRefsCache();
                 }
-
-                console.log(`%c[SyncGuard] ✅ Completed at ${new Date().toLocaleTimeString()} - Context synchronized.`, 'color: #16a34a; font-weight: bold;');
             } catch (err) {
-                console.error('[SyncGuard] ❌ Background sync encountered error:', err);
-            } finally {
-                console.groupEnd();
+                console.error('[SyncGuard] Background sync error:', err);
             }
         }
     });

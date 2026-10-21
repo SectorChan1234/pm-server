@@ -4,11 +4,9 @@
 // Standard: Defensive Intranet Architecture (Zero External Dependencies)
 // ==========================================================================
 
-// Global Authentication State & Session Context (對齊 Stage 1 雙向相容金鑰)
 const token = localStorage.getItem('pb_token') || sessionStorage.getItem('pb_token');
 const rawUser = JSON.parse(localStorage.getItem('pb_user') || sessionStorage.getItem('pb_user') || '{}');
 
-// 身分欄位雙向大小寫相容 (CamelCase 與 Snake_case 雙向對齊)
 const user = {
     ...rawUser,
     pk_t05: rawUser.pk_t05 || rawUser.pkT05,
@@ -20,13 +18,11 @@ const user = {
     fkT05PkT01Custom: rawUser.fkT05PkT01Custom || rawUser.fk_t05_pk_t01_custom || 0
 };
 
-// Project & Context State
 let userProjects = [];
 let currentProjectId = null;
-let currentProjectRight = null; // 'FULL', 'GENERAL', 'VIEWER', 'EVENT ONLY', 'ADMIN'
+let currentProjectRight = null;
 let activeQuote = null;
 
-// 基礎身分守衛 (Route Guard)：未通過驗證則彈窗明確警示並跳轉
 const effectiveUserId = user.pk_t05 || user.pkT05;
 if (!token || !effectiveUserId) {
     const missingItems = [];
@@ -48,21 +44,14 @@ if (!token || !effectiveUserId) {
     window.location.replace('/index.html');
 }
 
-/**
- * 取得專案下拉選單 DOM 元素 (防禦性雙向兼容)
- */
 function getProjectSelectElement() {
     return document.getElementById('projectSelect') || document.getElementById('currentProjectSelect');
 }
 
-// ==========================================================================
-// Central Fetch Helper & API Interceptor (整合 MutationGuard 生命週期防衛)
-// ==========================================================================
 async function api(path, options = {}) {
     const method = (options.method || 'GET').toUpperCase();
     const isMutation = (method === 'POST' || method === 'PUT' || method === 'DELETE');
 
-    // 1. 寫入前檢查 (斷線防護、印出起跑日誌)
     if (isMutation && window.MutationGuard && typeof window.MutationGuard.beforeMutation === 'function') {
         if (!window.MutationGuard.beforeMutation(path)) {
             return { status: 'FAILED', message: 'Mutation cancelled by guard' };
@@ -84,7 +73,6 @@ async function api(path, options = {}) {
         }
         const data = await res.json();
 
-        // 2. 寫入成功後：全自動觸發階層式快取失效與審計日誌
         if (isMutation && data && (data.status === 'SUCCESS' || data.success === true)) {
             if (window.MutationGuard && typeof window.MutationGuard.notifySuccess === 'function') {
                 window.MutationGuard.notifySuccess(path, data);
@@ -118,18 +106,14 @@ function logout(reason) {
     window.location.replace('/index.html');
 }
 
-// ==========================================================================
-// Initialization & Global Event Listeners
-// ==========================================================================
 document.addEventListener('DOMContentLoaded', async () => {
     initHeaderUserInfo();
-    initSidebarPreference(); // 純前端同步讀取 localStorage，0 網路延遲
+    initSidebarPreference();
     loadUnreadNotifications();
+    loadTopShortcuts();
 
-    // 載入專案選單資料庫清單
     await loadProjectsAndInit();
 
-    // 啟動通用路由器分發引擎 (注入 Zone 4 專案同步與左側選單高亮回呼)
     if (window.PortalRouter) {
         window.PortalRouter.init({
             onSyncProject: syncZone4ProjectContext,
@@ -137,7 +121,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    // 綁定 Zone 4 專案下拉選單變更事件 (主動切換專案)
     const sel = getProjectSelectElement();
     if (sel) {
         sel.addEventListener('change', (e) => {
@@ -150,8 +133,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    // 攔截頁面內局部深層錨點點擊
     document.addEventListener('click', (e) => {
+        closeUserMenu();
+        closeShortcutMenu();
+
         const link = e.target.closest('a');
         if (!link) return;
 
@@ -168,9 +153,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 });
 
-/**
- * [職責] 初始化 Zone 3 使用者中心與零信任 Admin Console 進入按鈕
- */
 function initHeaderUserInfo() {
     const displayName = user.name || 'User';
     const initialEl = document.getElementById('userInitial');
@@ -178,7 +160,6 @@ function initHeaderUserInfo() {
     if (initialEl) initialEl.textContent = displayName.trim().charAt(0).toUpperCase();
     if (nameEl) nameEl.textContent = displayName;
 
-    // ★ 零信任安全注入：僅當身分為 ADMIN 時動態建立 DOM 節點插入 #adminActionSlot
     const userRight = (user.st_right || user.stRight || '').toUpperCase();
     const adminSlot = document.getElementById('adminActionSlot');
     if (adminSlot) {
@@ -194,9 +175,6 @@ function initHeaderUserInfo() {
     }
 }
 
-/**
- * [職責] 初始化 Zone 1 側欄偏好狀態 (純前端 localStorage 讀取，0 資料庫 I/O)
- */
 function initSidebarPreference() {
     const isCollapsed = localStorage.getItem('pb_sidebar_collapsed') === 'true';
     if (isCollapsed) {
@@ -207,9 +185,6 @@ function initSidebarPreference() {
     }
 }
 
-/**
- * [職責] 切換 Zone 1 側欄收合狀態，並同步寫入 localStorage (0 網路延遲、0 台帳污染)
- */
 function toggleSidebarCollapse() {
     const workspaceEl = document.getElementById('mainWorkspace') || document.querySelector('.workspace');
     if (!workspaceEl) return;
@@ -219,9 +194,6 @@ function toggleSidebarCollapse() {
     localStorage.setItem('pb_sidebar_collapsed', isCollapsed ? 'true' : 'false');
 }
 
-/**
- * [職責] 讀取並更新未讀通知數量 (Zone 3 鈴鐺標籤)
- */
 async function loadUnreadNotifications() {
     const res = await api('/api/portal/message/unread-count');
     if (res && res.status === 'SUCCESS') {
@@ -237,9 +209,30 @@ async function loadUnreadNotifications() {
     }
 }
 
-/**
- * [職責] 點擊 Zone 3 鈴鐺切換 Zone 9 隨選列表面板
- */
+// ==========================================================================
+// Zone 2: My Shortcut Dropdown Management
+// ==========================================================================
+async function loadTopShortcuts() {
+    const res = await api('/api/setting/shortcut/list');
+    if (res && res.status === 'SUCCESS' && res.shortcuts) {
+        if (window.PortalZone8 && typeof window.PortalZone8.renderTopShortcutMenu === 'function') {
+            window.PortalZone8.renderTopShortcutMenu(res.shortcuts);
+        }
+    }
+}
+
+function toggleShortcutMenu(e) {
+    e.stopPropagation();
+    closeUserMenu();
+    const menu = document.getElementById('shortcutMenu');
+    if (menu) menu.classList.toggle('show');
+}
+
+function closeShortcutMenu() {
+    const menu = document.getElementById('shortcutMenu');
+    if (menu) menu.classList.remove('show');
+}
+
 function toggleNotificationsSidePanel(event) {
     if (event) {
         event.stopPropagation();
@@ -318,7 +311,7 @@ function syncSidebarMenuHighlight(viewAction) {
 }
 
 // ==========================================================================
-// Central View Switcher (委派予 PortalRouter)
+// Central View Switcher
 // ==========================================================================
 function switchView(viewName) {
     if (!viewName) return;
@@ -331,7 +324,6 @@ function handleMenuAction(actionKey) {
     switchView(actionKey);
 }
 
-// 向下相容全域 registerView 註冊入口
 function registerView(actionKey, handlerFn) {
     if (window.PortalRouter) {
         window.PortalRouter.registerLegacyView(actionKey, handlerFn);
@@ -340,44 +332,94 @@ function registerView(actionKey, handlerFn) {
     }
 }
 
-// 註冊首頁系統架構說明視圖
 registerView('system-overview', renderSystemOverviewView);
 
 // ==========================================================================
-// Zone 4: Project Context & Deep Linking Synchronization
+// Zone 4: Project Context & Folder Management Synchronization
 // ==========================================================================
 async function loadProjectsAndInit() {
-    const res = await api('/api/portal/project/list');
+    const [pjRes, folderRes] = await Promise.all([
+        api('/api/portal/project/list'),
+        api('/api/setting/folder/list').catch(() => null)
+    ]);
+
     const select = getProjectSelectElement();
     if (!select) return;
 
     select.innerHTML = '<option value="">-- Select Project --</option>';
 
-    if (!res || res.status !== 'SUCCESS' || !res.data || res.data.length === 0) {
+    if (!pjRes || pjRes.status !== 'SUCCESS' || !pjRes.data || pjRes.data.length === 0) {
         userProjects = [];
         return;
     }
 
-    userProjects = res.data;
-    userProjects.forEach((pj) => {
-        const opt = document.createElement('option');
-        opt.value = String(pj.pk_t01);
-        opt.textContent = `[${pj.pj_code}] ${pj.pj_name}`;
-        select.appendChild(opt);
-    });
+    userProjects = pjRes.data;
+
+    const allFolders = (folderRes && folderRes.folders) ? folderRes.folders : [];
+    const mappings = (folderRes && folderRes.mappings) ? folderRes.mappings : [];
+
+    // 計算所有「已被指派到任何資料夾」的專案 ID 集合（全域排他）
+    const allAssignedPjIds = new Set(mappings.map(m => Number(m.pjId)));
+
+    // 篩選出在 Zone 4 中需要呈現的資料夾（系統資料夾預設常駐，自訂資料夾需 zone4Visible === true）
+    const visibleFolders = allFolders.filter(f => f.status === 'Enable' && (f.isSystem || f.zone4Visible === true));
+
+    if (visibleFolders.length > 0) {
+        visibleFolders.forEach(f => {
+            const groupEl = document.createElement('optgroup');
+            groupEl.label = `📁 ${f.folderName} ${f.isSystem ? '(System)' : ''}`;
+
+            const matchedMappings = mappings.filter(m => m.folderName === f.folderName);
+            matchedMappings.forEach(m => {
+                const pj = userProjects.find(p => Number(p.pk_t01) === Number(m.pjId));
+                if (pj) {
+                    const opt = document.createElement('option');
+                    opt.value = String(pj.pk_t01);
+                    opt.textContent = `[${pj.pj_code}] ${pj.pj_name}`;
+                    groupEl.appendChild(opt);
+                }
+            });
+
+            if (groupEl.children.length > 0) {
+                select.appendChild(groupEl);
+            }
+        });
+
+        // 只有「從未被指派至任何資料夾」的專案，才歸入 Uncategorized Projects
+        const trueUnassignedProjects = userProjects.filter(p => !allAssignedPjIds.has(Number(p.pk_t01)));
+        if (trueUnassignedProjects.length > 0) {
+            const unassignedGroup = document.createElement('optgroup');
+            unassignedGroup.label = '📂 Uncategorized Projects';
+            trueUnassignedProjects.forEach(pj => {
+                const opt = document.createElement('option');
+                opt.value = String(pj.pk_t01);
+                opt.textContent = `[${pj.pj_code}] ${pj.pj_name}`;
+                unassignedGroup.appendChild(opt);
+            });
+            select.appendChild(unassignedGroup);
+        }
+    } else {
+        // 全域無自訂分組時的標準平鋪展示
+        userProjects.forEach((pj) => {
+            const opt = document.createElement('option');
+            opt.value = String(pj.pk_t01);
+            opt.textContent = `[${pj.pj_code}] ${pj.pj_name}`;
+            select.appendChild(opt);
+        });
+    }
 
     if (currentProjectId) {
         select.value = String(currentProjectId);
     }
 }
 
-/**
- * [職責] 被動接收 PortalRouter 的分發通知，同步 Zone 4 專案上下文與權限
- */
+window.syncZone4WithFolderSettings = async function () {
+    await loadProjectsAndInit();
+};
+
 async function syncZone4ProjectContext(targetPjId, targetView) {
     const select = getProjectSelectElement();
 
-    // 1. 若無指定專案 (pj == null)
     if (!targetPjId) {
         currentProjectId = null;
         currentProjectRight = null;
@@ -390,7 +432,6 @@ async function syncZone4ProjectContext(targetPjId, targetView) {
     const numericPj = parseInt(targetPjId, 10);
     const matchedPj = userProjects.find(p => p.pk_t01 === numericPj);
 
-    // 2. 若清單中有此專案，立即同步上下文
     if (matchedPj) {
         currentProjectId = numericPj;
         currentProjectRight = (matchedPj.my_right || '').toUpperCase();
@@ -406,7 +447,6 @@ async function syncZone4ProjectContext(targetPjId, targetView) {
         return true;
     }
 
-    // 3. 若清單未命中，向後端核驗權限
     const checkRes = await api(`/api/portal/project/check-access?pj=${numericPj}`);
     if (checkRes && checkRes.status === 'NOT_FOUND') {
         alert(`【Project Not Found】\nProject [ID: ${numericPj}] does not exist.`);
@@ -438,9 +478,6 @@ function resetToHome() {
     resetToOverview();
 }
 
-/**
- * [職責] 渲染 Zone 11 首頁系統架構與治理導引 (System Overview)
- */
 function renderSystemOverviewView() {
     const headingEl = document.getElementById('viewHeading');
     const roleEl = document.getElementById('viewRole');
@@ -499,9 +536,6 @@ function renderSystemOverviewView() {
     }
 }
 
-// ==========================================================================
-// Zone 10: Discussion Thread Engine
-// ==========================================================================
 async function renderThreadMessagesInZone10(queryObj, displayTitle, scopeLabel) {
     const titleEl = document.getElementById('threadTitle');
     const scopeEl = document.getElementById('threadScope');
@@ -626,9 +660,6 @@ async function submitComment() {
     }
 }
 
-// ==========================================================================
-// Modal Utilities & Password Change Center
-// ==========================================================================
 function openModal(modalId) {
     const el = document.getElementById(modalId);
     if (el) el.style.display = 'flex';
@@ -646,6 +677,7 @@ function closeUserMenu() {
 
 function openPasswordModal() {
     closeUserMenu();
+    closeShortcutMenu();
     const oldInput = document.getElementById('oldPwdInput');
     const newInput = document.getElementById('newPwdInput');
     const confInput = document.getElementById('confirmPwdInput');
@@ -701,17 +733,11 @@ async function submitPasswordChange() {
 
 function toggleUserMenu(e) {
     e.stopPropagation();
+    closeShortcutMenu();
     const userMenu = document.getElementById('userMenu');
     if (userMenu) userMenu.classList.toggle('show');
 }
 
-document.addEventListener('click', () => {
-    closeUserMenu();
-});
-
-// ==========================================================================
-// Focus / Visibility Re-validation
-// ==========================================================================
 (function initVisibilitySyncGuard() {
     let lastBlurTimestamp = Date.now();
     const MIN_BACKGROUND_DURATION_MS = 10000;
@@ -729,6 +755,7 @@ document.addEventListener('click', () => {
 
             try {
                 await loadProjectsAndInit();
+                loadTopShortcuts();
                 if (typeof window.invalidateEventRefsCache === 'function') {
                     window.invalidateEventRefsCache();
                 }

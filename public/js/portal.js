@@ -361,8 +361,8 @@ async function loadProjectsAndInit() {
     // 計算所有「已被指派到任何資料夾」的專案 ID 集合（全域排他）
     const allAssignedPjIds = new Set(mappings.map(m => Number(m.pjId)));
 
-    // 篩選出在 Zone 4 中需要呈現的資料夾（系統資料夾預設常駐，自訂資料夾需 zone4Visible === true）
-    const visibleFolders = allFolders.filter(f => f.status === 'Enable' && (f.isSystem || f.zone4Visible === true));
+   // 篩選出需要呈現的資料夾（系統資料夾與自訂資料夾一律嚴格依據 zone4Visible === true 決定是否顯示）
+    const visibleFolders = allFolders.filter(f => f.status === 'Enable' && f.zone4Visible === true);
 
     if (visibleFolders.length > 0) {
         visibleFolders.forEach(f => {

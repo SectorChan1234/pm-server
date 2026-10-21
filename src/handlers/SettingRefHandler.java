@@ -175,7 +175,16 @@ public class SettingRefHandler implements HttpHandler {
 
                         String folderName = extractJsonValue(catB, "SettingValue");
                         boolean isSystem = isFkNull || (folderName != null && RESERVED_SYSTEM_FOLDERS.contains(folderName.toUpperCase()));
-                        boolean zone4Visible = "VISIBLE".equalsIgnoreCase(refText);
+                        
+						boolean zone4Visible = false;
+						if (refText != null) {
+							String rt = refText.trim();
+							if ("VISIBLE".equalsIgnoreCase(rt)) {
+								zone4Visible = true;
+							} else if (rt.contains("\"zone4_visible\":true") || rt.contains("\"zone4_visible\": true")) {
+								zone4Visible = true;
+							}
+						}
 
                         Map<String, Object> map = new java.util.HashMap<>();
                         map.put("pkT00", pkT00);

@@ -42,7 +42,19 @@
     let currentSelectedFolder = null; // null 表示 "All Uncategorized Projects"
     let selectedTransferProjects = new Set();
 
-    const RESERVED_FOLDERS = ['PREPARE', 'WORKING', 'ARCHIVE'];
+    function isSystemFolder(f) {
+        if (!f) return false;
+        if (f.folderType === 'SYSTEM_FOLDER') return true;
+        if (f.categoryB && typeof f.categoryB === 'string' && f.categoryB.indexOf('"FolderType":"SYSTEM_FOLDER"') !== -1) return true;
+        if (f.isSystem === true) return true;
+        return false;
+    }
+
+    function isSystemFolderName(name) {
+        if (!name) return false;
+        const upper = name.trim().toUpperCase();
+        return cachedFolderData.folders.some(f => isSystemFolder(f) && f.folderName.toUpperCase() === upper);
+    }
 
     async function mountFolderManagementView(container, params, routeSeq) {
         container.innerHTML = `
@@ -51,7 +63,7 @@
                     <h2>📁 Folder Management & Project Organization</h2>
                 </div>
                 <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
-                    Configure personal project categorization folders. Enable folders to display as filtered categories in the Zone 4 project selector.
+                    Configure personal project categorization folders. Enable folders to display as filtered categories in the Current Project options.
                 </p>
 
                 <!-- Top Action Toolbar -->
@@ -86,7 +98,7 @@
                             </h4>
                             <div style="display: flex; gap: 6px; align-items: center;">
                                 <button type="button" id="btnFilterUncategorized" class="btn-submit" style="padding: 3px 8px; font-size: 11px;" onclick="PortalZone8.selectUncategorizedView()">
-                                    All Uncategorized Projects
+                                    Select All Uncategorized Projects
                                 </button>
                                 <span id="transferPjCount" style="font-size: 11px; color: var(--text-muted);">0 Projects</span>
                             </div>
@@ -166,7 +178,7 @@
         grid.innerHTML = folders.map(f => {
             const assignedCount = mappings.filter(m => m.folderName === f.folderName).length;
             const isEnabled = (f.status === 'Enable');
-            const isSystem = Boolean(f.isSystem);
+            const isSystem = isSystemFolder(f);
             const isSelected = (currentSelectedFolder === f.folderName);
 
             return `
@@ -193,7 +205,7 @@
                         ${!isSystem ? `
                             <label style="display: flex; align-items: center; gap: 4px; font-size: 11px; cursor: pointer;" onclick="event.stopPropagation();">
                                 <input type="checkbox" ${f.zone4Visible ? 'checked' : ''} onchange="PortalZone8.toggleFolderZone4Visibility(${f.pkT00}, this.checked, '${escapeHtml(f.folderName)}')">
-                                <span>Show in Zone 4</span>
+                                <span>Show in Current Project options</span>
                             </label>
                             <div style="display: flex; gap: 6px; align-items: center;" onclick="event.stopPropagation();">
                                 <button type="button" class="btn-link" style="color: #0284c7;" onclick="PortalZone8.openRenameFolderModal(${f.pkT00}, '${escapeHtml(f.folderName)}')">Rename</button>
@@ -241,7 +253,7 @@
             if (f.status === 'Enable') {
                 const opt = document.createElement('option');
                 opt.value = f.folderName;
-                opt.textContent = `${f.folderName} ${f.isSystem ? '(System)' : ''}`;
+                opt.textContent = `${f.folderName} ${isSystemFolder(f) ? '(System)' : ''}`;
                 selEl.appendChild(opt);
             }
         });
@@ -252,8 +264,7 @@
 
         let filteredProjects = [];
         if (currentSelectedFolder) {
-            // 檢視特定 Folder
-            if (headerTitleEl) headerTitleEl.innerHTML = `Folder List in <span style="color: #0284c7;">${escapeHtml(currentSelectedFolder)}</span> Folder`;
+            if (headerTitleEl) headerTitleEl.innerHTML = `Project List in &nbsp<span style="color: #0284c7;">${escapeHtml(currentSelectedFolder)}</span> &nbsp Folder`;
             if (btnUncat) {
                 btnUncat.className = 'btn-secondary';
                 btnUncat.style.opacity = '0.7';
@@ -265,8 +276,7 @@
             );
             filteredProjects = allProjects.filter(p => mappedPjIds.has(Number(p.pk_t01)));
         } else {
-            // 檢視 All Uncategorized Projects
-            if (headerTitleEl) headerTitleEl.textContent = 'Folder List in';
+            if (headerTitleEl) headerTitleEl.textContent = 'Uncategorized Projects';
             if (btnUncat) {
                 btnUncat.className = 'btn-submit';
                 btnUncat.style.opacity = '1';
@@ -391,8 +401,8 @@
         if (!val || !val.trim()) return;
 
         const folderName = val.trim();
-        if (RESERVED_FOLDERS.includes(folderName.toUpperCase())) {
-            alert(`Cannot create folder with reserved system name "${folderName}".`);
+        if (isSystemFolderName(folderName)) {
+            alert(`Cannot create folder with system folder name "${folderName}".`);
             return;
         }
 
@@ -422,12 +432,18 @@
     }
 
     async function openRenameFolderModal(pkT00, currentName) {
+        const target = cachedFolderData.folders.find(f => f.pkT00 === pkT00);
+        if (target && isSystemFolder(target)) {
+            alert('System default folders cannot be edited.');
+            return;
+        }
+
         const val = prompt(`Enter new name for folder "${currentName}":`, currentName);
         if (!val || !val.trim() || val.trim() === currentName) return;
 
         const newName = val.trim();
-        if (RESERVED_FOLDERS.includes(newName.toUpperCase())) {
-            alert(`Cannot rename folder to reserved system name "${newName}".`);
+        if (isSystemFolderName(newName)) {
+            alert(`Cannot rename folder to system folder name "${newName}".`);
             return;
         }
 
@@ -459,6 +475,12 @@
     }
 
     async function deleteFolderCategory(pkT00, folderName) {
+        const target = cachedFolderData.folders.find(f => f.pkT00 === pkT00);
+        if (target && isSystemFolder(target)) {
+            alert('System default folders cannot be deleted.');
+            return;
+        }
+
         const confirmed = confirm(`Are you sure you want to delete custom folder "${folderName}"?\n(Assigned project mappings will be cleaned simultaneously)`);
         if (!confirmed) return;
 
@@ -787,28 +809,30 @@
                     Governance console for data dictionary definitions, project configurations (FULL ownership required), and user interface settings.
                 </p>
 
-                <!-- Section A: Data Dictionary -->
-                <div class="card-head" style="margin-top: 10px; padding-bottom: 6px;">
-                    <h3>📚 Data Dictionary Overrides (Table A)</h3>
-                </div>
-                <div style="overflow-x: auto; margin-bottom: 28px;" id="prefDictTableWrapper">
-                    <div class="empty-placeholder">Loading dictionary entries...</div>
-                </div>
-
-                <!-- Section B: System-Project Related Settings -->
-                <div class="card-head" style="margin-top: 10px; padding-bottom: 6px;">
-                    <h3>🏢 System-Project Related Configurations (Table B - Grouped by Project)</h3>
-                </div>
-                <div style="overflow-x: auto; margin-bottom: 28px;" id="prefPjTableWrapper">
-                    <div class="empty-placeholder">Loading project-linked configurations...</div>
+                <!-- Section A: Table A -->
+                <div id="sectionTableA" style="margin-bottom: 24px;">
+                    <div class="card-head" style="margin-top: 10px; padding-bottom: 6px;">
+                        <h3>Table A</h3>
+                    </div>
+                    <div style="overflow-x: auto;" id="prefDictTableWrapper">
+                        <div class="empty-placeholder">Loading dictionary entries...</div>
+                    </div>
                 </div>
 
-                <!-- Section C: System-UI Settings -->
-                <div class="card-head" style="margin-top: 10px; padding-bottom: 6px;">
-                    <h3>🎨 Interface & System Settings (Table C - Grouped by Category A + Ref_Text)</h3>
+                <!-- Section B: Table B (Hidden by default, displayed only when records exist) -->
+                <div id="sectionTableB" style="margin-bottom: 24px; display: none;">
+                    <div class="card-head" style="margin-top: 10px; padding-bottom: 6px;">
+                        <h3>Table B</h3>
+                    </div>
+                    <div style="overflow-x: auto;" id="prefPjTableWrapper"></div>
                 </div>
-                <div style="overflow-x: auto; margin-bottom: 20px;" id="prefUiTableWrapper">
-                    <div class="empty-placeholder">Loading system interface settings...</div>
+
+                <!-- Section C: Table C (Hidden by default, displayed only when records exist) -->
+                <div id="sectionTableC" style="margin-bottom: 20px; display: none;">
+                    <div class="card-head" style="margin-top: 10px; padding-bottom: 6px;">
+                        <h3>Table C</h3>
+                    </div>
+                    <div style="overflow-x: auto;" id="prefUiTableWrapper"></div>
                 </div>
             </div>
         `;
@@ -836,7 +860,7 @@
         renderSystemUiTable(cachedPrefData.systemUiRecords);
     }
 
-    // 可讀化自然語言轉換 (T02_PH_Status -> Phase Status)
+    // 可讀化自然語言轉換：Table 與 Field 名稱中間加上 "-" (例如: Project Role-RoleType, Phase-Status)
     function formatCategoryHumanReadable(rawCategoryA) {
         if (!rawCategoryA) return 'Unknown';
         const str = rawCategoryA.trim();
@@ -856,7 +880,7 @@
         if (parts.length >= 2 && tablePrefixMap[parts[0]]) {
             const tableWord = tablePrefixMap[parts[0]];
             const fieldSuffix = parts[parts.length - 1];
-            return `${tableWord} ${fieldSuffix}`;
+            return `${tableWord}-${fieldSuffix}`;
         }
 
         return str;
@@ -930,6 +954,7 @@
         });
 
         if (res && res.status === 'SUCCESS') {
+            window.isDictionaryDirty = true;
             alert('Dictionary entry saved successfully.');
             await reloadPrefRecords();
         } else {
@@ -938,13 +963,17 @@
     }
 
     function renderProjectRelatedTable(records) {
+        const secB = document.getElementById('sectionTableB');
         const wrap = document.getElementById('prefPjTableWrapper');
-        if (!wrap) return;
+        if (!secB || !wrap) return;
 
-        if (records.length === 0) {
-            wrap.innerHTML = '<div class="empty-placeholder">No project-linked configurations found (or you do not possess FULL rights on configured projects).</div>';
+        if (!records || records.length === 0) {
+            secB.style.display = 'none';
+            wrap.innerHTML = '';
             return;
         }
+
+        secB.style.display = 'block';
 
         // Group by Project ID (Ref_Text)
         const groups = {};
@@ -1003,13 +1032,17 @@
     }
 
     function renderSystemUiTable(records) {
+        const secC = document.getElementById('sectionTableC');
         const wrap = document.getElementById('prefUiTableWrapper');
-        if (!wrap) return;
+        if (!secC || !wrap) return;
 
-        if (records.length === 0) {
-            wrap.innerHTML = '<div class="empty-placeholder">No interface system configurations found.</div>';
+        if (!records || records.length === 0) {
+            secC.style.display = 'none';
+            wrap.innerHTML = '';
             return;
         }
+
+        secC.style.display = 'block';
 
         // Group by Category A + Ref_Text
         const groups = {};
@@ -1069,7 +1102,9 @@
             })
         });
 
-        if (!res || res.status !== 'SUCCESS') {
+        if (res && res.status === 'SUCCESS') {
+            window.isDictionaryDirty = true;
+        } else {
             alert('Failed to update status: ' + (res ? res.message : 'Server error'));
             await reloadPrefRecords();
         }
@@ -1085,6 +1120,7 @@
         });
 
         if (res && res.status === 'SUCCESS') {
+            window.isDictionaryDirty = true;
             await reloadPrefRecords();
         } else {
             alert('Failed to delete configuration entry: ' + (res ? res.message : 'Server error'));
